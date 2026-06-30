@@ -29,3 +29,15 @@ class Snapshot:
     def empty(cls) -> "Snapshot":
         """Return a versioned empty snapshot (safe default before any reload)."""
         return cls(version="empty", created_at=datetime.now(timezone.utc))
+
+
+def policy_for(snapshot: Snapshot, rule_id: str | None) -> Any | None:
+    """Look up a rule's policy metadata in the snapshot catalog.
+
+    The single shared lookup so the PEP and the audit logger resolve
+    ``policy_triggered`` from a ``rule_id`` identically. None-safe: returns
+    ``None`` for a missing rule or a ``None`` rule_id (e.g. infra signals).
+    """
+    if rule_id is None:
+        return None
+    return snapshot.catalog.get(rule_id)

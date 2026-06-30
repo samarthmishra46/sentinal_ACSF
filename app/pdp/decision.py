@@ -51,6 +51,23 @@ class Decision:
     disposition: Disposition
     reason: str
     signals: tuple[Signal, ...] = ()
+    # Version of the policy snapshot this decision was evaluated against.
+    # Stamped by the pipeline from the exact snapshot it used, so the audit log
+    # cites the right version even if a hot-reload happens afterwards. Defaults
+    # to "" at construction; stages don't know the version, the pipeline does.
+    policy_version: str = ""
+
+    @property
+    def decisive_signal(self) -> Signal | None:
+        """The strictest signal behind this decision, or None if there are none.
+
+        Single canonical source for the audit log's ``rule_triggered`` /
+        ``policy_triggered`` fields, so the PEP and the audit logger always cite
+        the *same* signal.
+        """
+        if not self.signals:
+            return None
+        return max(self.signals, key=lambda s: s.disposition)
 
     @classmethod
     def allow(cls, reason: str = "", signals: tuple[Signal, ...] = ()) -> "Decision":
