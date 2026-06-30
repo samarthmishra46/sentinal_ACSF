@@ -9,10 +9,11 @@ order can't block the team.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Callable, Optional
 
 from app.pdp.combiner import combine
-from app.pdp.decision import Decision, Disposition
+from app.pdp.decision import Decision, Disposition, Signal
 from app.policy.models import Snapshot
 from app.policy.store import PolicyStore
 
@@ -47,11 +48,35 @@ class Pipeline:
 
         # Cheapest-first / fail-fast: run in order, short-circuit on STOP.
         for stage in self._stages:
-            verdict = stage(ctx, prompt, snap)
+            try:
+                verdict = stage(ctx, prompt, snap)
+            except Exception as exc:
+                # Fail-closed: a crashing detector must never propagate out of
+                # evaluate(). Convert it to ESCALATE (the team's convention for
+                # infra failure) so the request is held for review, not answered
+                # un-screened. Does not short-circuit; only STOP does.
+                verdicts.append(self._stage_error(stage, exc))
+                continue
             if verdict is None:
                 continue
             verdicts.append(verdict)
             if verdict.disposition is Disposition.STOP:
                 break
 
-        return combine(verdicts)
+        # Stamp the snapshot version onto the result so the audit log cites the
+        # exact policy version used, race-free against a later hot-reload.
+        return replace(combine(verdicts), policy_version=snap.version)
+
+    @staticmethod
+    def _stage_error(stage: Stage, exc: Exception) -> Decision:
+        """Build the fail-closed ESCALATE verdict for a stage that raised."""
+        name = getattr(stage, "__name__", repr(stage))
+        reason = f"fail-closed: stage '{name}' raised {type(exc).__name__}"
+        signal = Signal(
+            detector="pipeline",
+            rule_id=None,
+            disposition=Disposition.ESCALATE,
+            reason=reason,
+            metadata={"stage": name, "error": repr(exc)},
+        )
+        return Decision.escalate(reason=reason, signals=(signal,))

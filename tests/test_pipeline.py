@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.pdp.decision import Decision, Disposition
 from app.pdp.pipeline import Pipeline
+from app.policy.models import Snapshot
 from app.policy.store import PolicyStore
 
 
@@ -40,3 +43,30 @@ def test_stop_short_circuits_later_stages() -> None:
 
     assert result.disposition is Disposition.STOP
     assert ran == ["stopper"]  # spy proven not to have run
+
+
+def test_raising_stage_fails_closed_to_escalate() -> None:
+    ran: list[str] = []
+
+    def boom(ctx, prompt, snap):
+        raise RuntimeError("detector crashed")
+
+    def later(ctx, prompt, snap):
+        ran.append("later")  # exceptions don't short-circuit, so this must run
+        return None
+
+    pipe = Pipeline(PolicyStore(), stages=[boom, later])
+    result = pipe.evaluate(CTX, "hello")  # must NOT raise
+
+    assert result.disposition is Disposition.ESCALATE
+    assert ran == ["later"]
+    assert result.decisive_signal is not None
+    assert result.decisive_signal.detector == "pipeline"
+    assert "boom" in result.reason
+
+
+def test_policy_version_stamped_from_snapshot() -> None:
+    snap = Snapshot(version="v1.0", created_at=datetime.now(timezone.utc))
+    pipe = Pipeline(PolicyStore(snap), stages=[_noop])
+    result = pipe.evaluate(CTX, "hello")
+    assert result.policy_version == "v1.0"
