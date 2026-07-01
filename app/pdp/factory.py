@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Callable, Optional
 
-from app.pdp.decision import Decision, Signal
+from app.pdp.decision import Decision, Disposition, Signal
 from app.pdp.pipeline import Pipeline, Stage
 from app.policy.models import Snapshot
 from app.policy.store import PolicyStore
@@ -27,13 +27,45 @@ if TYPE_CHECKING:
 Detector = Callable[["RequestContext", str, Snapshot], Optional[Signal]]
 
 
-def default_stages() -> list[Stage]:
-    """The ordered stages for the standard pipeline.
+def _authz_stage(ctx: "RequestContext", prompt: str, snap: Snapshot) -> Optional[Decision]:
+    """Stage 3 — authorization. Reuses Anamika's Cedar/RBAC ``evaluate()``.
 
-    Empty today (Day 1 plumbing). Detectors and auth stages get appended here,
-    cheapest-first / fail-fast, as they land on Day 2.
+    Her ``evaluate(ctx, action)`` returns a disposition string ("ALLOW"/"STOP");
+    ALLOW means no objection (return None). Anything else becomes a Decision with
+    an ``authz`` Signal. An unrecognised result fails closed to ESCALATE.
     """
-    return []
+    from app.pdp.authz.cedar_engine import evaluate as cedar_evaluate  # lazy import
+
+    result = cedar_evaluate(ctx, action="chat")
+    if result == "ALLOW":
+        return None
+    disposition = Disposition.__members__.get(result, Disposition.ESCALATE)
+    reason = f"Authorization denied: role '{getattr(ctx, 'role', '?')}' is not permitted."
+    signal = Signal(
+        detector="authz",
+        rule_id="R-AUTH",
+        disposition=disposition,
+        reason=reason,
+        metadata={"engine_result": result},
+    )
+    return Decision(disposition, reason, (signal,))
+
+
+def default_stages() -> list[Stage]:
+    """The ordered pipeline stages: authorization first, then detectors 4→7.
+
+    Cheapest-first / fail-fast. Stage 3 is authorization (Anamika's engine);
+    stages 4–7 are Sneha's + Nikhil's detectors, wrapped by ``detector_stage``.
+    Imports are lazy so importing this module never drags the detector chain.
+    """
+    from app.pdp.detectors import ALL_DETECTORS  # lazy
+
+    stages: list[Stage] = [_authz_stage]
+    for det in sorted(ALL_DETECTORS, key=lambda d: d.stage_order):
+        stage = detector_stage(det.scan)
+        stage.__name__ = det.stage_name  # name by detector for audit/fail-closed messages
+        stages.append(stage)
+    return stages
 
 
 def build_pipeline(store: PolicyStore, stages: Sequence[Stage] | None = None) -> Pipeline:

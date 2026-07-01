@@ -12,6 +12,11 @@ def test_empty_verdicts_fail_closed_to_escalate() -> None:
     assert result.reason == "fail-closed: no verdicts produced"
 
 
+def test_all_allow_yields_allow() -> None:
+    result = combine([Decision.allow("a"), Decision.allow("b"), Decision.allow("c")])
+    assert result.disposition is Disposition.ALLOW
+
+
 def test_allow_and_stop_yields_stop() -> None:
     result = combine([Decision.allow("ok"), Decision.stop("blocked")])
     assert result.disposition is Disposition.STOP
