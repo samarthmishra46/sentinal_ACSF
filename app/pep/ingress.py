@@ -79,5 +79,10 @@ def handle_request(prompt: str, user_id: str) -> dict:
         }
 
     latency_ms = (perf_counter() - started) * 1000.0
-    _audit.record(decision, response, prompt=prompt, ctx=ctx, latency_ms=latency_ms)
+    # Pass the active snapshot so the audit sink can resolve policy_triggered from
+    # the shared catalog (policy_for) — same lookup the PDP uses.
+    _audit.record(
+        decision, response, prompt=prompt, ctx=ctx,
+        latency_ms=latency_ms, snapshot=_store.active,
+    )
     return response
