@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from typing import Optional, Protocol
 
 from app._compat import Decision, RequestContext
+from app.policy.models import Snapshot, policy_for
 
 # Map the PEP's user-facing decision strings onto Nikhil's controlled vocabulary
 # (DECISIONS frozenset). Identity today; the indirection documents the contract.
@@ -34,6 +35,24 @@ _DECISION_VOCAB = {"ALLOW": "ALLOW", "STOP": "STOP", "ESCALATE": "ESCALATE", "RE
 def hash_prompt(prompt: str) -> str:
     """SHA-256 hex digest — the only sanctioned way a prompt enters a record."""
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def _resolve_policy_id(snapshot: Optional[Snapshot], rule_id: Optional[str]) -> Optional[str]:
+    """Resolve ``policy_triggered`` from the rule via the SHARED catalog lookup.
+
+    ``policy_for(snapshot, rule_id)`` is the single source of truth (Sneha's
+    catalog.yaml, rule_id -> {policy_id, ...}), so the PEP and Nikhil's audit read
+    the same value. Returns the catalog entry's ``policy_id``, or ``None`` when
+    there is no snapshot / rule / catalog match (fail-safe, never invents a value).
+    """
+    if snapshot is None or not rule_id:
+        return None
+    meta = policy_for(snapshot, rule_id)
+    if isinstance(meta, dict):
+        return meta.get("policy_id")
+    if isinstance(meta, str):
+        return meta
+    return None
 
 
 class AuditSink(Protocol):
@@ -49,6 +68,7 @@ class AuditSink(Protocol):
         prompt: str,
         ctx: Optional[RequestContext],
         latency_ms: float,
+        snapshot: Optional[Snapshot] = None,
     ) -> None:
         ...
 
@@ -64,8 +84,10 @@ class ConsoleAuditSink:
         prompt: str,
         ctx: Optional[RequestContext],
         latency_ms: float,
+        snapshot: Optional[Snapshot] = None,
     ) -> None:
         sig = decision.decisive_signal
+        rule_id = sig.rule_id if sig else None
         record = {
             "request_id": str(uuid.uuid4()),
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -73,11 +95,15 @@ class ConsoleAuditSink:
             "role": ctx.role if ctx else None,
             "service": ctx.owned_services[0] if ctx and ctx.owned_services else None,
             "prompt_hash": hash_prompt(prompt),
-            "policy_triggered": None,  # audit logger resolves rule_id -> policy via snapshot
+            # Resolved here from the shared catalog (was always None before) so the
+            # audit log actually cites the policy, not a blank.
+            "policy_triggered": _resolve_policy_id(snapshot, rule_id),
             "decision": _DECISION_VOCAB.get(response.get("decision", ""), response.get("decision")),
             "reason": decision.reason,
-            "actor_type": "A-01",      # TODO: from EIM actor classification (Anamika)
-            "rule_triggered": sig.rule_id if sig else None,
+            # Anamika's EIM now classifies the actor (PR #13); fall back to A-01
+            # (human) if the field is absent on an older RequestContext.
+            "actor_type": getattr(ctx, "actor_type", "A-01") if ctx else "A-01",
+            "rule_triggered": rule_id,
             "latency_ms": round(latency_ms, 2),
             "signals": [s.detector for s in decision.signals],
             "policy_version": decision.policy_version,
