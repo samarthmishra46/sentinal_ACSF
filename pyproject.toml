@@ -32,6 +32,7 @@ packages = [
     "app.pdp",
     "app.pdp.authz",
     "app.pdp.detectors",
+    "app.pep",
     "app.policy",
 ]
 
