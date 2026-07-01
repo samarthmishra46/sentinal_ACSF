@@ -211,25 +211,34 @@ class AuditRecord:
                 "cannot build a record without one"
             )
 
+        # rule/policy: Samarth's Decision carries them on its *decisive* Signal
+        # (Decision has no rule_triggered field). Prefer explicit attrs, then
+        # fall back to the strictest signal's rule_id — matching how the PEP and
+        # audit hook cite the same signal.
+        dsig = _decisive_signal(decision)
+        rule = _first_attr(decision, ("rule_triggered", "rule"), default=None)
+        if rule is None and dsig is not None:
+            rule = getattr(dsig, "rule_id", None)
+        policy = _first_attr(decision, ("policy_triggered", "policy"), default=None)
+
+        # policy_version: prefer the value the pipeline stamped on the Decision.
+        pv = _first_attr(decision, ("policy_version",), default=None)
+
         return cls(
             user_id=str(_first_attr(ctx, ("user_id", "user"), default="unknown")),
             role=str(_first_attr(ctx, ("role",), default="unknown")),
-            service=str(_first_attr(ctx, ("service", "owned_service"), default="")),
+            service=str(_context_service(ctx)),
             prompt_hash=prompt_hash,
             decision=decision_str,
             reason=str(_first_attr(decision, ("reason", "message"), default="")),
             actor_type=str(_first_attr(ctx, ("actor_type", "actor"), default="")),
-            rule_triggered=str(
-                _first_attr(decision, ("rule_triggered", "rule"), default="")
-            ),
-            policy_triggered=str(
-                _first_attr(decision, ("policy_triggered", "policy"), default="")
-            ),
+            rule_triggered=str(rule or ""),
+            policy_triggered=str(policy or ""),
             latency_ms=float(
                 _first_attr(decision, ("latency_ms",), default=latency_ms)
             ),
             signals=signals,
-            policy_version=policy_version,
+            policy_version=str(pv) if pv else policy_version,
         )
 
     # --- Serialization -------------------------------------------------------
@@ -348,10 +357,48 @@ def _normalise_signals(raw: Any) -> list[str]:
         return [raw]
     out: list[str] = []
     for s in raw:
-        # Signal may be a dataclass/obj; render something human-readable.
+        # Signal may be a dataclass/obj; render something human-readable. Samarth's
+        # Signal exposes ``.detector`` (what the PEP/audit hook cite), so try that
+        # first, then generic label-ish attributes.
         if isinstance(s, str):
             out.append(s)
         else:
-            label = _first_attr(s, ("label", "name", "id", "rule"), default=None)
+            label = _first_attr(s, ("detector", "label", "name", "id", "rule"), default=None)
             out.append(str(label) if label is not None else str(s))
     return out
+
+
+def _decisive_signal(decision: Any) -> Any:
+    """Return the strictest signal on a decision (Samarth's ``decisive_signal``).
+
+    Uses the ``decisive_signal`` property if present; otherwise picks the signal
+    with the highest ``disposition``. None-safe.
+    """
+    sig = _first_attr(decision, ("decisive_signal",), default=None)
+    if sig is not None:
+        return sig
+    signals = _first_attr(decision, ("signals",), default=None)
+    if not signals:
+        return None
+    try:
+        return max(signals, key=lambda s: getattr(s, "disposition", 0))
+    except (TypeError, ValueError):
+        return None
+
+
+def _context_service(ctx: Any) -> str:
+    """Resolve the service string from a context.
+
+    Anamika's ``RequestContext`` exposes ``owned_services`` (a list); older stubs
+    used ``service``/``owned_service`` (scalar). Handle both.
+    """
+    scalar = _first_attr(ctx, ("service", "owned_service"), default=None)
+    if scalar:
+        return str(scalar)
+    owned = _first_attr(ctx, ("owned_services",), default=None)
+    if owned:
+        try:
+            return str(owned[0])
+        except (IndexError, TypeError, KeyError):
+            return ""
+    return ""

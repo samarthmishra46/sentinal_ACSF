@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from dataclasses import dataclass, field
+from enum import IntEnum
 
 import pytest
 
@@ -205,3 +207,76 @@ def test_from_decision_missing_verdict_fails_closed():
     rec = AuditRecord.from_decision(Empty(), _FakeContext())
     # No disposition -> fail closed to ESCALATE rather than ALLOW.
     assert rec.decision == "ESCALATE"
+
+
+# --- from_decision against the team's REAL contracts ------------------------
+# Faithful replicas of app/pdp/decision.py (Samarth) and app/identity/context.py
+# (Anamika) so we prove integration works against their actual shapes.
+
+class _Disposition(IntEnum):
+    ALLOW = 0
+    ESCALATE = 1
+    STOP = 2
+
+
+@dataclass(frozen=True)
+class _Signal:
+    detector: str
+    rule_id: str | None
+    disposition: _Disposition
+    reason: str
+    confidence: float = 1.0
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Decision:
+    disposition: _Disposition
+    reason: str
+    signals: tuple = ()
+    policy_version: str = "v1.0"
+
+    @property
+    def decisive_signal(self):
+        return max(self.signals, key=lambda s: s.disposition) if self.signals else None
+
+
+@dataclass
+class _RequestContext:
+    user_id: str = "eng-042"
+    role: str = "Engineer"
+    owned_services: list = field(default_factory=lambda: ["risk-scoring", "kyc"])
+    actor_type: str = "A-01"
+
+
+def test_from_decision_matches_real_samarth_and_anamika_types():
+    sig = _Signal(
+        detector="secrets_scanner",
+        rule_id="R-07",
+        disposition=_Disposition.STOP,
+        reason="Credential detected: database connection string.",
+        metadata={"severity": "HIGH"},
+    )
+    decision = _Decision(_Disposition.STOP, sig.reason, (sig,), policy_version="v1.2")
+    ctx = _RequestContext()
+
+    rec = AuditRecord.from_decision(
+        decision, ctx, prompt="postgres://u:p@h/db", latency_ms=8.4
+    )
+
+    assert rec.decision == "STOP"
+    assert rec.rule_triggered == "R-07"          # pulled from decisive_signal.rule_id
+    assert rec.signals == ["secrets_scanner"]     # rendered from Signal.detector
+    assert rec.service == "risk-scoring"          # first of owned_services
+    assert rec.actor_type == "A-01"
+    assert rec.policy_version == "v1.2"           # stamped from the Decision
+    assert rec.prompt_hash == hash_prompt("postgres://u:p@h/db")
+
+
+def test_from_decision_picks_strictest_signal_rule():
+    allow_sig = _Signal("pii_detector", "R-01", _Disposition.ALLOW, "ok")
+    stop_sig = _Signal("secrets_scanner", "R-07", _Disposition.STOP, "creds")
+    decision = _Decision(_Disposition.STOP, "creds", (allow_sig, stop_sig))
+    rec = AuditRecord.from_decision(decision, _RequestContext(), prompt="x")
+    # decisive_signal is the STOP one -> R-07, not R-01.
+    assert rec.rule_triggered == "R-07"
