@@ -1,16 +1,15 @@
-from typing import Optional
+from typing import List, Optional
 from app.identity.context import RequestContext
 from app.pdp.authz.rbac import has_capability, CODE_HELP, DOC, ARCH, REVIEW_SEC, REVIEW_COMP
+from app.pdp.authz.scope import ScopeTrie
 
 # --- TEAM INTEGRATION POINTS ---
-# Sneha (Day 2): write policies/v1/authz.cedar with Cedar rules for R1-R5
-#                A placeholder with the expected Cedar syntax is in policies/v1/authz.cedar
-#                Once written, uncomment _cedar_sdk_evaluate() and it will take over
-# Samarth: wire evaluate(ctx, action) as Stage 2 in app/pdp/pipeline.py
-#          wrap the return value into a Signal using decision.py models:
-#          Signal(rule_id="R-auth", disposition=Disposition[result], confidence=1.0)
-# Ryan: PEP enforcement (app/pep/enforcement.py) reads the Decision produced here
-#       STOP → block request before forwarding to AI; ESCALATE → queue for review
+# Sneha (Day 2 ✅): policies/v1/authz.cedar with Cedar rules R1-R5 — ready in devlop.
+#                   Activate _cedar_sdk_evaluate() once the cedar Python package is installed.
+# Samarth (Day 3 ✅): wired evaluate(ctx, action) as Stage 3 in factory.py/pipeline.
+#                     evaluate() now returns ALLOW | ESCALATE | STOP.
+#                     Pass prompt= and known_orgs= for R-08 detection, service= for scope.
+# Ryan: STOP → block before AI; ESCALATE → escalation queue (already handled in enforcement.py)
 
 # Maps each action to the capability bit it requires (mirrors Sneha's authz.cedar rules)
 _ACTION_CAPABILITY = {
@@ -47,19 +46,26 @@ def _cedar_sdk_evaluate(ctx: RequestContext, action: str) -> Optional[str]:
     return None
 
 
-def evaluate(ctx: RequestContext, action: str = "chat") -> str:
+def evaluate(
+    ctx: RequestContext,
+    action: str = "chat",
+    prompt: str = "",
+    known_orgs: Optional[List[str]] = None,
+    service: str = "",
+) -> str:
     """Evaluate whether this context is authorized to perform the action.
 
     Day 2: Python Cedar-equivalent rules using RBAC bitmask.
-    Day 3: delegates to _cedar_sdk_evaluate() once Sneha's authz.cedar is ready.
+    Day 3: ESCALATE added for R-08 cross-org and unowned service.
+           Backward-compatible: Samarth's evaluate(ctx, action="chat") call unchanged.
 
-    Returns one of: ALLOW | STOP
+    Returns one of: ALLOW | ESCALATE | STOP
     """
     # Rule 0: completely unknown/blocked role → immediate STOP
     if ctx.role in _BLOCKED_ROLES or ctx.role not in _KNOWN_ROLES:
         return "STOP"
 
-    # Try real Cedar SDK first — no-op until Sneha writes authz.cedar
+    # Try real Cedar SDK first — no-op until cedar package installed
     cedar_result = _cedar_sdk_evaluate(ctx, action)
     if cedar_result is not None:
         return cedar_result
@@ -68,5 +74,15 @@ def evaluate(ctx: RequestContext, action: str = "chat") -> str:
     required_cap = _ACTION_CAPABILITY.get(action, CODE_HELP)
     if not has_capability(ctx.role, required_cap):
         return "STOP"
+
+    # R-08: cross-org prompt detection → ESCALATE for human review
+    if prompt and ScopeTrie.detect_cross_org(ctx.tenant, prompt, known_orgs):
+        return "ESCALATE"
+
+    # Service ownership: user accessing a service outside their scope → ESCALATE
+    if service:
+        owned = ctx.owned_services
+        if "*" not in owned and service not in owned:
+            return "ESCALATE"
 
     return "ALLOW"
