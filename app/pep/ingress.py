@@ -1,58 +1,83 @@
-# RYAN-DAY1
+# RYAN-DAY2
 """PEP ingress — the request entry path: build context -> evaluate -> enforce.
 
 Owner: Ryan.
-Gate: Day-1 noon — handle_request is what the POST /v1/chat route calls. It
-builds a stub RequestContext, asks the (stub) PDP for a Decision, and runs
-enforcement, returning the dict that becomes the HTTP response body.
+Gate: Day-1 noon — handle_request is what the POST /v1/chat route calls.
 
-V1 stubs that teammates replace on integration:
-  - RequestContext is hardcoded here; real values come from Anamika's EIM
-    (app/identity/eim_client.py + app/identity/context.py).
-  - pdp_evaluate is a local stub. On merge it is replaced by Samarth's pipeline
-    via its composition root (app/pdp/factory.py): build the Pipeline once at
-    startup, then call pipeline.evaluate(ctx, prompt). No auth/detection logic
-    lives in this seat.
+Day-2 integration:
+  - The stub ``pdp_evaluate`` is gone. Ingress now drives Samarth's REAL pipeline
+    via its composition root: ``build_pipeline(store)`` is called ONCE at import
+    (the PEP's startup), then ``pipeline.evaluate(ctx, prompt)`` runs per request
+    (sync, per the locked contract). With no detectors registered yet the seeded
+    baseline resolves to ALLOW ("no detector objected"); Sneha's/Nikhil's/
+    Anamika's stages plug into ``default_stages()`` as they land — no change here.
+  - An OUTER fail-closed guard wraps the whole path so a PEP-side error (context
+    build, enforcement, audit) is converted to a safe ESCALATE response instead
+    of a 500 with a traceback. The pipeline already fails closed internally; this
+    guards the code on either side of it.
+  - One audit record is emitted per request (see app.pep.audit_hook). Today that
+    is a console sink; on integration it swaps for Nikhil's AsyncAuditLogger.
+
+Identity (Anamika, integrated):
+  - RequestContext is no longer hand-built here. It comes from the EIM mock
+    (app/identity/eim_client.py::EIMClient.get_context(user_id)), which resolves
+    role / tenant / owned_services / session_token for a known user. An UNKNOWN
+    user is an authentication failure: the PEP fails closed (STOP) before the
+    request ever reaches the PDP or the assistant.
 """
-from datetime import datetime, timezone
+from time import perf_counter
 
-from app._compat import Decision, RequestContext
-from app.pep import enforcement
+from app._compat import Decision
+from app.identity.eim_client import EIMClient
+from app.pdp.factory import build_pipeline
+from app.pep import audit_hook, enforcement
+from app.policy.store import PolicyStore
+
+# --- PEP startup (composition root) ---------------------------------------- #
+# Built once at import time, not per request. The PolicyStore starts with an
+# empty snapshot; Adhiraj/Samarth's loader populates it from the bundle dir.
+_store = PolicyStore()
+_pipeline = build_pipeline(_store)
+_audit = audit_hook.default_sink()
+_eim = EIMClient()
 
 
 def handle_request(prompt: str, user_id: str) -> dict:
-    """Handle one chat request end-to-end; return the response body dict."""
-    ctx = _build_stub_context(user_id)
-    decision = pdp_evaluate(ctx, prompt)
-    return enforcement.apply(decision, prompt, ctx)
+    """Handle one chat request end-to-end; return the response body dict.
 
-
-def _build_stub_context(user_id: str) -> RequestContext:
-    """Build a hardcoded RequestContext for V1.
-
-    role and tenant are hardcoded per the Day-1 brief; owned_services,
-    session_token, and timestamp are filled with simple stubs so the model
-    shape is complete. All of this is replaced by the EIM lookup later.
+    Two fail-closed guards wrap the path:
+      * an unknown/unauthenticated user is denied (STOP) before the PDP/AI;
+      * anything else that escapes becomes a human-review ESCALATE — never a
+        leaked traceback or an unscreened answer.
     """
-    return RequestContext(
-        user_id=user_id,
-        role="Engineer",                 # TODO: from EIM (Anamika) — hardcoded for Day-1
-        tenant="AU-1",                   # TODO: from EIM (Anamika) — hardcoded for Day-1
-        owned_services=[],               # TODO: from EIM (Anamika)
-        session_token="stub-session",    # TODO: from EIM (Anamika)
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
+    started = perf_counter()
+    ctx = None
+    try:
+        # Identity first: resolve the caller. Fail closed on an unknown user.
+        try:
+            ctx = _eim.get_context(user_id)
+        except ValueError as exc:
+            print(f"[AUTH-DENY] {exc}")
+            decision = Decision.stop(reason=f"unknown or unauthenticated user: {user_id}")
+            response = {
+                "decision": "STOP",
+                "reason": "Your identity could not be verified for this request.",
+                "response": None,
+            }
+        else:
+            decision = _pipeline.evaluate(ctx, prompt)
+            # apply() returns the EFFECTIVE decision — an egress block rewrites a
+            # pre-model ALLOW into a STOP, and we must audit what was enforced.
+            response, decision = enforcement.apply(decision, prompt, ctx)
+    except Exception as exc:  # fail-closed: hold for a human, reveal nothing
+        print(f"[PEP-ERROR] {type(exc).__name__}: {exc}")
+        decision = Decision.escalate(reason="internal error — held for review")
+        response = {
+            "decision": "ESCALATE",
+            "reason": "Your request could not be processed and is under review.",
+            "response": None,
+        }
 
-
-def pdp_evaluate(ctx: RequestContext, prompt: str) -> Decision:
-    """STUB Policy Decision Point — always ALLOW for the Day-1 skeleton.
-
-    On merge this is replaced by Samarth's pipeline composition root:
-        from app.pdp.factory import build_pipeline
-        # at startup:   pipeline = build_pipeline(store)
-        # here:         return pipeline.evaluate(ctx, prompt)
-    (note: the real pipeline's ALLOW reason is "no detector objected"). By design
-    there is no authorization or detection logic in this seat.
-    """
-    # TODO: replace with app.pdp.factory.build_pipeline(store).evaluate(ctx, prompt).
-    return Decision.allow(reason="stub: no PDP yet")
+    latency_ms = (perf_counter() - started) * 1000.0
+    _audit.record(decision, response, prompt=prompt, ctx=ctx, latency_ms=latency_ms)
+    return response

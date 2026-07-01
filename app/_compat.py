@@ -11,8 +11,9 @@ app/identity/context.py — then the swap is the single line below.
 # Locked PDP contract (Samarth) — app/pdp/decision.py.
 from app.pdp.decision import Decision, Disposition, Signal
 
-# Switch this when Anamika commits app/identity/context.py:
-#   from app.identity.context import RequestContext
-from app._placeholders.context import RequestContext
+# Anamika's real identity model (app/identity/context.py). This replaced the
+# Day-1 placeholder once anamika-auth-day1 landed the identity package; the swap
+# was a single line here, exactly as the indirection was designed for.
+from app.identity.context import RequestContext
 
 __all__ = ["Decision", "Signal", "Disposition", "RequestContext"]
