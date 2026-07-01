@@ -29,6 +29,7 @@ from time import perf_counter
 
 from app._compat import Decision
 from app.identity.eim_client import EIMClient
+from app.monitoring import signals
 from app.pdp.factory import build_pipeline
 from app.pep import audit_hook, enforcement
 from app.policy.store import PolicyStore
@@ -93,5 +94,12 @@ def handle_request(prompt: str, user_id: str) -> dict:
     _audit.record(
         decision, response, prompt=prompt, ctx=ctx,
         latency_ms=latency_ms, snapshot=_store.active,
+    )
+    # Adhiraj's monitoring counters (threat/role/decision), one bump per request.
+    sig = decision.decisive_signal
+    signals.increment(
+        sig.rule_id if sig and sig.rule_id else "none",
+        ctx.role if ctx else "unknown",
+        response["decision"],
     )
     return response
