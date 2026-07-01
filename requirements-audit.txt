@@ -1,0 +1,13 @@
+# Audit subsystem dependencies (Nikhil).
+#
+# The SQLite fallback backend, the AuditRecord model, the logger, and the entire
+# test suite use only the Python standard library + pytest — nothing below is
+# needed to run or test the subsystem on Day 1-2.
+#
+# asyncpg is required ONLY for the production PostgresBackend (V1 target, gap
+# R-G4). Install it when cutting over to PostgreSQL on Day 3.
+
+asyncpg>=0.29.0
+
+# Test runner (already present in this environment; pinned for reproducibility).
+pytest>=7.0

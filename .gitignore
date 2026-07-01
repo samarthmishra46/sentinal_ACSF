@@ -1,9 +1,26 @@
+# --- Python ---
 __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
-.DS_Store
 *.egg-info/
 dist/
 build/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+
+# --- Env / secrets ---
 .env
+*.pem
+
+# --- Audit DB (Nikhil) ---
+*.db
+*.db-wal
+*.db-shm
+sentinel_audit.db*
+
+# --- OS ---
+.DS_Store
