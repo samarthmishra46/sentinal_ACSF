@@ -1,0 +1,372 @@
+# ─────────────────────────────────────────────────────────
+# Sentinel Policy Catalog — v1
+# Owner: Sneha
+#
+# Each entry is a policy rule with its metadata.
+# The detectors reference these by rule_id when building Signals.
+# The audit log uses reason_template to generate human-readable
+# explanations for each decision.
+#
+# version: v1  = building in this sprint
+# version: v2  = deferred (tell Sumit)
+# ─────────────────────────────────────────────────────────
+
+policies:
+
+  # ═══════ V1 RULES (building now) ═══════
+
+  - id: "R-01"
+    title: "Customer PII Protection"
+    threat_id: "T-01"
+    disposition: STOP
+    detector: pii_detector
+    stage: 6
+    reason_template: "Customer PII detected in request: {entity_type} ({entity_value_masked}). Customer data must not enter the AI model. Use synthetic data for debugging."
+    owasp_id: "LLM02"
+    atlas_id: "AML.T0024"
+    severity: HIGH
+    frameworks:
+      - "AU Privacy Act 1988 — APP 11"
+      - "AML/CTF Act 2006 — Part 11"
+      - "DPDP Act 2023 — Section 8(5)"
+      - "NIST CSF 2.0 — PR.DS"
+      - "IT Act 2000 — Section 72"
+    version: v1
+
+  - id: "R-02"
+    title: "SMR/TTR Content Protection"
+    threat_id: "T-02"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Suspicious Matter Report or regulatory report content detected. SMR content is protected under AML/CTF Act s.123 (tipping-off offence). The AI assistant must not process this content."
+    owasp_id: "LLM02"
+    atlas_id: "AML.T0024"
+    severity: CRITICAL
+    alert_compliance: true
+    frameworks:
+      - "AML/CTF Act 2006 — Section 123"
+      - "AML/CTF Act 2006 — Part 4"
+      - "AU Privacy Act 1988 — APP 6"
+      - "NIST CSF 2.0 — PR.DS-1"
+      - "IT Act 2000 — Section 72"
+      - "ISM — ISM-1526"
+    version: v1
+
+  - id: "R-03"
+    title: "Compliance Control Bypass Prevention"
+    threat_id: "T-03"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Compliance bypass attempt detected: request combines '{action_verb}' with '{compliance_object}'. The AI assistant must not help weaken AML/CTF controls."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "AML/CTF Act 2006 — Part 2"
+      - "AUSTRAC Guidance — Compliance programs"
+      - "NIST CSF 2.0 — GV.RM"
+      - "IT Act 2000 — Section 43"
+      - "DPDP Act 2023 — Section 8(5)"
+      - "ISM — ISM-1526"
+    version: v1
+
+  - id: "R-04"
+    title: "System Attack Prevention"
+    threat_id: "T-04"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "System attack pattern detected: request combines '{attack_technique}' with '{system_target}'. The AI assistant must not help attack Lex-AML infrastructure."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: CRITICAL
+    frameworks:
+      - "IT Act 2000 — Section 66"
+      - "NIST CSF 2.0 — PR.PS"
+      - "CISA — Secure by Design"
+      - "CERT-In — Mandatory reporting"
+      - "ASD Essential Eight — E1, E2"
+      - "ISM — ISM-1526"
+    version: v1
+
+  - id: "R-05"
+    title: "Bulk Data Extraction"
+    threat_id: "T-05"
+    disposition: ESCALATE
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Bulk data extraction request detected: '{extraction_pattern}'. Intent is ambiguous — request held for human reviewer."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0024"
+    severity: MEDIUM
+    frameworks:
+      - "DPDP Act 2023 — Section 4"
+      - "AU Privacy Act 1988 — APP 11"
+      - "NIST CSF 2.0 — PR.AA"
+      - "ISM — ISM-0133"
+    version: v1
+
+  - id: "R-06"
+    title: "Prompt Injection Defence"
+    threat_id: "T-06"
+    disposition: STOP
+    detector: injection_scanner
+    stage: 5
+    reason_template: "Prompt injection detected: '{injection_pattern}' found in request content. Embedded instructions are not followed."
+    owasp_id: "LLM01"
+    atlas_id: "AML.T0051"
+    severity: HIGH
+    frameworks:
+      - "ISM — ISM-1526 (names prompt injection)"
+      - "NIST AI RMF — MAP 2.3, MEASURE 2.6"
+      - "NIST CSF 2.0 — DE.AE"
+      - "White House EO — Sec. 4.1"
+      - "IT Act 2000 — Section 43"
+      - "AU AI Ethics — Principles 4, 8"
+    version: v1
+
+  - id: "R-07"
+    title: "Internal Secret and Credential Exposure"
+    threat_id: "T-07"
+    disposition: STOP
+    detector: secrets_scanner
+    stage: 4
+    reason_template: "Infrastructure credential detected: {secret_type}. Secrets must not enter the AI model. Use vault references or placeholder values."
+    owasp_id: "LLM02"
+    atlas_id: "AML.T0024"
+    severity: HIGH
+    alert_engineering_lead: true
+    frameworks:
+      - "NIST CSF 2.0 — PR.DS, PR.AA"
+      - "ASD Essential Eight — E7"
+      - "ISM — ISM-1526, ISM-1401"
+      - "IT Act 2000 — Section 43"
+      - "CISA — Secure by Design"
+    version: v1
+
+  - id: "R-08"
+    title: "Cross-Organisation Data Contamination"
+    threat_id: "T-08"
+    disposition: ESCALATE
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Cross-tenant reference detected: request mentions organisations '{org_a}' and '{org_b}' with operational data. Reviewer must confirm cross-referencing is authorised."
+    owasp_id: "LLM02"
+    atlas_id: "AML.T0024"
+    severity: MEDIUM
+    frameworks:
+      - "AU Privacy Act 1988 — APP 11, APP 6"
+      - "DPDP Act 2023 — Section 4, Section 8(5)"
+      - "NIST CSF 2.0 — PR.DS"
+      - "AML/CTF Act 2006 — Part 11"
+      - "ISM — ISM-0042, ISM-1526"
+    version: v1
+
+  - id: "R-09"
+    title: "Compliance Reporting Manipulation"
+    threat_id: "T-09"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Compliance record manipulation detected: request combines '{manipulation_verb}' with '{compliance_record}' and temporal falsification intent. Historical compliance records are immutable."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: CRITICAL
+    frameworks:
+      - "AML/CTF Act 2006 — Part 2, Part 4"
+      - "AUSTRAC — Record-keeping obligations"
+      - "NIST CSF 2.0 — GV.RM, PR.DS"
+      - "IT Act 2000 — Section 65, Section 43"
+      - "ISM — ISM-1526, ISM-0133"
+    version: v1
+
+  # ═══════ V2 RULES (deferred — tell Sumit) ═══════
+
+  - id: "R-10"
+    title: "Multi-Turn Progressive Escalation"
+    threat_id: "T-10"
+    disposition: ESCALATE
+    detector: conversation_analyser
+    stage: null  # not assigned yet
+    reason_template: "Progressive narrowing detected across {turn_count} turns toward {protected_category}. Full conversation flagged for review."
+    owasp_id: "LLM01"
+    atlas_id: "AML.T0051.001"
+    severity: HIGH
+    version: v2
+    defer_reason: "Needs conversation store — not building in V1"
+
+  - id: "R-11"
+    title: "AI Compliance Decision Prevention"
+    threat_id: "T-11"
+    disposition: ESCALATE
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Compliance decision request detected. The AI must not make compliance decisions — your team makes every decision. Request escalated for reviewer guidance."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0048"
+    severity: MEDIUM
+    version: v2
+    defer_reason: "V1 uses ESCALATE as fallback. V2 will add CONSTRAIN disposition — AI answers but appends mandatory deferral notice."
+
+  - id: "R-12"
+    title: "Automated System Anomaly Detection"
+    threat_id: "T-12"
+    disposition: ESCALATE
+    detector: system_profiler
+    stage: null
+    reason_template: "Automated system {service_id} deviated from baseline: {deviation_type}. Service account suspended pending review."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0024"
+    severity: HIGH
+    version: v2
+    defer_reason: "Needs behavioural baseline engine — not in V1"
+
+  - id: "R-13"
+    title: "Adversary Behavioural Detection"
+    threat_id: "T-13"
+    disposition: ESCALATE
+    detector: behaviour_engine
+    stage: null
+    reason_template: "Behavioural anomaly detected for {user_id}: {indicator_count} indicators in rolling 24h window — {indicators}."
+    owasp_id: "LLM01"
+    atlas_id: "AML.T0051.001"
+    severity: CRITICAL
+    version: v2
+    defer_reason: "Needs per-user behavioural baseline — not in V1"
+
+  # ═══════ GENERAL OFFENSIVE-CYBER THREATS (V2) ═══════
+  # These are not Lex-AML-specific but apply to any internal
+  # AI assistant. An engineer could misuse the assistant for
+  # general offensive work even if it doesn't target Lex-AML.
+  # Currently caught partially by R-04 (system attack) —
+  # these entries give each its own policy ID for audit
+  # and regulatory traceability.
+
+  - id: "R-14"
+    title: "Malware Creation Assistance"
+    threat_id: "T-14"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Malware creation request detected: request asks for functional {malware_type}. The AI assistant must not produce malicious code."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: CRITICAL
+    frameworks:
+      - "IT Act 2000 — Section 43, Section 66"
+      - "NIST CSF 2.0 — PR.DS, DE.CM"
+      - "ISM — ISM-0917, ISM-1526"
+      - "CISA — Secure by Design"
+    version: v2
+    defer_reason: "Partially covered by R-04; full malware-specific patterns in V2"
+
+  - id: "R-15"
+    title: "Phishing / Social Engineering Content"
+    threat_id: "T-15"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Social engineering content request detected: request asks for {content_type} designed to deceive. Blocked under offensive-content policy."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "IT Act 2000 — Section 66D (Cheating by personation)"
+      - "NIST CSF 2.0 — PR.AT"
+      - "AU AI Ethics — Principle 5 (Fairness)"
+      - "DPDP Act 2023 — Section 8"
+    version: v2
+    defer_reason: "Needs impersonation/deception intent classifier — V2"
+
+  - id: "R-16"
+    title: "Credential Harvesting Tool Creation"
+    threat_id: "T-16"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Credential harvesting request detected: request asks for {tool_type} designed to capture credentials. Blocked."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "IT Act 2000 — Section 66C (Identity theft)"
+      - "NIST CSF 2.0 — PR.AA"
+      - "ASD Essential Eight — E7 (MFA)"
+      - "ISM — ISM-1401"
+    version: v2
+    defer_reason: "Partially covered by R-04 and R-07; dedicated patterns in V2"
+
+  - id: "R-17"
+    title: "Password Cracking / Brute-Force Assistance"
+    threat_id: "T-17"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Password cracking request detected: request involves {technique} against {target}. Blocked."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "IT Act 2000 — Section 43(a), Section 66"
+      - "ASD Essential Eight — E7 (MFA)"
+      - "ISM — ISM-0421 (Passphrase policy)"
+    version: v2
+    defer_reason: "Partially covered by R-04; hash/wordlist detection in V2"
+
+  - id: "R-18"
+    title: "Privilege Escalation on External Systems"
+    threat_id: "T-18"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "Privilege escalation request detected: request describes existing foothold and asks for escalation to {target_level}. Blocked."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: CRITICAL
+    frameworks:
+      - "IT Act 2000 — Section 43, Section 66"
+      - "NIST CSF 2.0 — PR.AA, PR.PS"
+      - "ASD Essential Eight — E5 (Restrict admin privileges)"
+      - "ISM — ISM-1507"
+    version: v2
+    defer_reason: "Partially covered by R-04; foothold-detection patterns in V2"
+
+  - id: "R-19"
+    title: "DDoS / Denial-of-Service Tool Creation"
+    threat_id: "T-19"
+    disposition: STOP
+    detector: intent_compliance_scanner
+    stage: 7
+    reason_template: "DDoS tool request detected: request asks for traffic-flooding or amplification tool targeting {target}. Blocked."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: CRITICAL
+    frameworks:
+      - "IT Act 2000 — Section 43(e) (Disrupting computer systems)"
+      - "NIST CSF 2.0 — PR.PS"
+      - "CISA — Critical Infrastructure Protection"
+      - "CERT-In — Mandatory DDoS reporting"
+      - "ASD Essential Eight — E8 (Regular backups)"
+    version: v2
+    defer_reason: "Partially covered by R-04; volume/amplification patterns in V2"
+
+  - id: "R-20"
+    title: "Model Extraction / Training Data Leakage"
+    threat_id: "T-20"
+    disposition: STOP
+    detector: injection_scanner
+    stage: 5
+    reason_template: "Model extraction attempt detected: request probes for {extraction_target}. System internals are protected."
+    owasp_id: "LLM10"
+    atlas_id: "AML.T0044"
+    severity: HIGH
+    frameworks:
+      - "NIST CSF 2.0 — PR.DS, PR.AA"
+      - "NIST AI RMF — MANAGE 2.4"
+      - "IT Act 2000 — Section 43, Section 65"
+      - "ISM — ISM-1526"
+      - "AU AI Ethics — Principle 3, Principle 7"
+    version: v2
+    defer_reason: "Partially covered by R-06; systematic probing detection in V2"

@@ -1,55 +1,156 @@
-// ============================================================
-// Sentinel V1 — Authorization Policies
-// OWNER: Sneha (Day 2)
-// USED BY: Anamika — app/pdp/authz/cedar_engine.py (_cedar_sdk_evaluate)
-// ============================================================
+// ─────────────────────────────────────────────────────────────────────
+// Sentinel Cedar Authorization Policies — v1
+// File: policies/v1/authz.cedar
+// Owner: Sneha (Cedar policy files), Anamika (Cedar engine)
 //
-// Sneha: fill in the real Cedar rules below for R1-R5.
-// The Python-equivalent rules already exist in cedar_engine.py as a fallback.
-// Once this file is complete, uncomment _cedar_sdk_evaluate() in cedar_engine.py.
+// These rules run at pipeline stages 2–3, BEFORE the content
+// detectors. They answer: "is this role allowed this action?"
 //
-// Cedar syntax reference:
-//   permit(principal, action, resource) when { conditions };
-//   forbid(principal, action, resource) unless { conditions };
+// If Cedar FORBIDS → request blocked, detectors never run.
+// If Cedar PERMITS → request continues to Stage 4+ detectors.
 //
-// Entity types used: User, Action, Resource
-// User attributes: role (String), tenant (String)
+// V1 roles:
+//   Engineer          — code, debug, architecture, documentation
+//   ComplianceOfficer — compliance docs, policy, AML/CTF guidance
+//   SecurityReviewer  — escalation review, security analysis
+//   Support           — basic queries only
 //
-// ============================================================
+// V1 dispositions: ALLOW, ESCALATE, STOP only.
+// REDACT and CONSTRAIN deferred to V2.
+// ─────────────────────────────────────────────────────────────────────
 
-// R-1: Engineers can chat and request code review
-permit(
-    principal in Role::"Engineer",
-    action in [Action::"chat", Action::"code_review", Action::"arch_view", Action::"doc_access"],
-    resource == Resource::"assistant"
+
+// ═══════ R1: ENGINEER CAPABILITIES (4 permits) ═══════
+
+// Engineers get code help, architecture, debugging, and documentation.
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"code_help"
+)
+when { principal.role == "Engineer" };
+
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"architecture"
+)
+when { principal.role == "Engineer" };
+
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"debugging"
+)
+when { principal.role == "Engineer" };
+
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"documentation"
+)
+when { principal.role == "Engineer" || principal.role == "ComplianceOfficer" };
+
+
+// ═══════ R2: COMPLIANCE OFFICER CAPABILITIES (2 permits) ═══════
+
+// Compliance officers get compliance guidance and policy drafting.
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"compliance_guidance"
+)
+when { principal.role == "ComplianceOfficer" };
+
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"policy_drafting"
+)
+when { principal.role == "ComplianceOfficer" };
+
+
+// ═══════ R3: SECURITY REVIEWER CAPABILITIES (2 permits) ═══════
+
+// Security reviewers handle escalated requests and security analysis.
+permit (
+    principal is User,
+    action == Action::"review_escalation",
+    resource == Resource::"escalation_queue"
+)
+when { principal.role == "SecurityReviewer" };
+
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"security_analysis"
+)
+when { principal.role == "SecurityReviewer" };
+
+
+// ═══════ R3b: SUPPORT STAFF (1 permit, restricted) ═══════
+
+// Support gets basic queries only — no sensitive capabilities.
+permit (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"basic_query"
+)
+when { principal.role == "Support" };
+
+
+// ═══════ R4: UNIVERSAL FORBIDS (5 rules) ═══════
+
+// Nobody — regardless of role — can do these three things.
+
+// 4a: No direct customer data access through the AI
+forbid (
+    principal is User,
+    action == Action::"access_customer_data",
+    resource
 );
 
-// R-2: Support can only access documentation
-permit(
-    principal in Role::"Support",
-    action == Action::"doc_access",
-    resource == Resource::"assistant"
+// 4b: No modification of compliance records through the AI
+forbid (
+    principal is User,
+    action == Action::"modify_compliance_record",
+    resource
 );
 
-// R-3: SecurityReviewer can do everything an Engineer can + security review
-permit(
-    principal in Role::"SecurityReviewer",
-    action in [Action::"chat", Action::"code_review", Action::"arch_view",
-               Action::"doc_access", Action::"security_review"],
-    resource == Resource::"assistant"
+// 4c: No compliance decisions by the AI (P-07: your team decides)
+forbid (
+    principal is User,
+    action == Action::"make_compliance_decision",
+    resource
 );
 
-// R-4: ComplianceOfficer can access docs and trigger compliance review
-permit(
-    principal in Role::"ComplianceOfficer",
-    action in [Action::"doc_access", Action::"compliance_review"],
-    resource == Resource::"assistant"
-);
+// 4d: Support cannot access security analysis
+forbid (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"security_analysis"
+)
+when { principal.role == "Support" };
 
-// R-5: Deny everything not explicitly permitted (Cedar is deny-by-default)
-// No additional forbid rule needed — Cedar's default is forbid unless permitted.
+// 4e: Support cannot access compliance guidance
+forbid (
+    principal is User,
+    action == Action::"use_assistant",
+    resource == Resource::"compliance_guidance"
+)
+when { principal.role == "Support" };
 
-// ============================================================
-// Sneha: add R-6 through R-9 rules here as needed for your detectors.
-// Anamika will wire them in on Day 3.
-// ============================================================
+
+// ═══════ R5: TENANT BOUNDARY ENFORCEMENT (1 rule) ═══════
+
+// All access must be within the user's assigned tenant.
+// If the resource belongs to a different tenant, block it.
+// Exception: SecurityReviewers can cross boundaries for
+// investigations — but this is logged at elevated severity.
+forbid (
+    principal is User,
+    action == Action::"use_assistant",
+    resource
+)
+when { resource.tenant != principal.tenant }
+unless { principal.role == "SecurityReviewer" };
