@@ -10,14 +10,20 @@ Owner: Sneha
 
 from __future__ import annotations
 
+import os
 import sys
+import types
 from dataclasses import dataclass, field
 from enum import IntEnum
-from unittest.mock import MagicMock
-import types
+
+# ── Add project root to sys.path (not the detectors dir!) ──────────────
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 
-# ── Stubs matching Samarth's committed decision.py ──────────────────────
+# ── Stub dependency modules (same as conftest.py) ──────────────────────
 
 
 class Disposition(IntEnum):
@@ -36,19 +42,6 @@ class Signal:
     metadata: dict = field(default_factory=dict)
 
 
-# Patch modules so detector imports resolve
-for mod_path in [
-    "app", "app.pdp", "app.pdp.decision",
-    "app.pdp.detectors", "app.pdp.detectors.base",
-    "app.identity", "app.identity.context",
-    "app.policy", "app.policy.models",
-]:
-    sys.modules[mod_path] = types.ModuleType(mod_path)
-
-sys.modules["app.pdp.decision"].Disposition = Disposition
-sys.modules["app.pdp.decision"].Signal = Signal
-
-
 @dataclass
 class RequestContext:
     user_id: str = "eng-042"
@@ -59,38 +52,49 @@ class RequestContext:
     timestamp: str = "2026-07-01T10:00:00Z"
 
 
-sys.modules["app.identity.context"].RequestContext = RequestContext
-
-from abc import ABC, abstractmethod
-
-
-class BaseDetector(ABC):
-    @property
-    @abstractmethod
-    def stage_name(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def stage_order(self) -> int: ...
-
-    @abstractmethod
-    def scan(self, ctx: RequestContext, prompt: str, snap: MagicMock) -> Signal | None: ...
+class Snapshot:
+    pass
 
 
-sys.modules["app.pdp.detectors.base"].BaseDetector = BaseDetector
-sys.modules["app.policy.models"].Snapshot = MagicMock
+_stubs = {
+    "app": types.ModuleType("app"),
+    "app.pdp": types.ModuleType("app.pdp"),
+    "app.pdp.decision": types.ModuleType("app.pdp.decision"),
+    "app.identity": types.ModuleType("app.identity"),
+    "app.identity.context": types.ModuleType("app.identity.context"),
+    "app.policy": types.ModuleType("app.policy"),
+    "app.policy.models": types.ModuleType("app.policy.models"),
+}
 
-# ── Import real detectors ───────────────────────────────────────────────
-import os
+_stubs["app.pdp.decision"].Disposition = Disposition
+_stubs["app.pdp.decision"].Signal = Signal
+_stubs["app.identity.context"].RequestContext = RequestContext
+_stubs["app.policy.models"].Snapshot = Snapshot
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app", "pdp", "detectors"))
+_stubs["app"].__path__ = [os.path.join(PROJECT_ROOT, "app")]
+_stubs["app.pdp"].__path__ = [os.path.join(PROJECT_ROOT, "app", "pdp")]
+_stubs["app.identity"].__path__ = [os.path.join(PROJECT_ROOT, "app", "identity")]
+_stubs["app.policy"].__path__ = [os.path.join(PROJECT_ROOT, "app", "policy")]
 
-from pii import PIIDetector
-from injection import InjectionDetector
-from intent import IntentScanner
+_stubs["app"].pdp = _stubs["app.pdp"]
+_stubs["app"].identity = _stubs["app.identity"]
+_stubs["app"].policy = _stubs["app.policy"]
+_stubs["app.pdp"].decision = _stubs["app.pdp.decision"]
+_stubs["app.identity"].context = _stubs["app.identity.context"]
+_stubs["app.policy"].models = _stubs["app.policy.models"]
+
+for mod_name, mod in _stubs.items():
+    sys.modules.setdefault(mod_name, mod)
 
 
-# ── Test data ───────────────────────────────────────────────────────────
+# ── Clean imports — same as everyone else uses ─────────────────────────
+
+from app.pdp.detectors.pii import PIIDetector
+from app.pdp.detectors.injection import InjectionDetector
+from app.pdp.detectors.intent import IntentScanner
+
+
+# ── Test data ──────────────────────────────────────────────────────────
 
 PROMPTS: list[tuple[str, str, str, str | None]] = [
     # (label, prompt, expected_decision, expected_rule)
@@ -125,9 +129,8 @@ PROMPTS: list[tuple[str, str, str, str | None]] = [
         "RT-06 Credential (Nikhil R-07)",
         "postgres://admin:p4ss@prod-db.internal:5432/lexaml_prod — debug SSL?",
         "ALLOW", None,
-        # R-07 is Nikhil's secrets detector — not implemented yet.
-        # This will change to STOP/R-07 once his module is wired.
-        # Sneha's PII detector correctly does NOT catch credentials.
+        # R-07 is Nikhil's secrets detector — not wired yet.
+        # Will change to STOP/R-07 once his module is live.
     ),
     (
         "RT-07 Manipulation",
@@ -147,7 +150,7 @@ PROMPTS: list[tuple[str, str, str, str | None]] = [
         "ESCALATE", "R-08",
     ),
 
-    # ALLOW cases — these MUST pass all detectors cleanly
+    # ALLOW cases
     (
         "RT-10 Legit React",
         "How do I add input validation to the customer onboarding form in React?",
@@ -171,14 +174,14 @@ PROMPTS: list[tuple[str, str, str, str | None]] = [
 ]
 
 
-# ── Run ─────────────────────────────────────────────────────────────────
+# ── Run ────────────────────────────────────────────────────────────────
 
 
 def main() -> None:
     ctx = RequestContext()
-    snap = MagicMock()
+    snap = Snapshot()
 
-    detectors: list[tuple[str, BaseDetector]] = [
+    detectors = [
         ("PII", PIIDetector()),
         ("Injection", InjectionDetector()),
         ("Intent", IntentScanner()),
@@ -189,22 +192,20 @@ def main() -> None:
     total = len(PROMPTS)
 
     print(f"\n{'=' * 80}")
-    print(f"  SENTINEL SMOKE TEST — {total} prompts × {len(detectors)} detectors")
+    print(f"  SENTINEL SMOKE TEST — {total} prompts x {len(detectors)} detectors")
     print(f"{'=' * 80}\n")
 
     for entry in PROMPTS:
         label, prompt, expected_decision, expected_rule = entry[0], entry[1], entry[2], entry[3]
 
-        # Run all detectors, collect any signals
-        fired_signals: list[Signal] = []
+        fired: list[Signal] = []
         for _name, det in detectors:
             sig = det.scan(ctx, prompt, snap)
             if sig is not None:
-                fired_signals.append(sig)
+                fired.append(sig)
 
-        # Determine actual decision (strictest signal wins, like the combiner)
-        if fired_signals:
-            strictest = max(fired_signals, key=lambda s: s.disposition)
+        if fired:
+            strictest = max(fired, key=lambda s: s.disposition)
             actual_decision = strictest.disposition.name
             actual_rule = strictest.rule_id
             detail = f"{strictest.detector}: {actual_decision} ({actual_rule})"
@@ -213,31 +214,27 @@ def main() -> None:
             actual_rule = None
             detail = "ALLOW (all detectors returned None)"
 
-        # Compare to expected
         match = actual_decision == expected_decision
         if match and expected_rule is not None:
             match = actual_rule == expected_rule
 
-        if match:
-            icon = "✅"
-            passed += 1
-        else:
-            icon = "❌"
-            failed += 1
+        icon = "\u2705" if match else "\u274c"
+        passed += match
+        failed += not match
 
         print(f"  {icon}  {label}")
         print(f"      Expected: {expected_decision} ({expected_rule or 'DEFAULT'})")
         print(f"      Actual:   {detail}")
         if not match:
-            print(f"      ⚠️  MISMATCH — investigate this detector")
+            print(f"      \u26a0\ufe0f  MISMATCH")
         print()
 
     print(f"{'=' * 80}")
     print(f"  Results: {passed}/{total} passed, {failed}/{total} failed")
     if failed == 0:
-        print(f"  🎯  All prompts matched expectations. Day 2 gate ready.")
+        print(f"  \U0001f3af  All prompts matched. Day 2 gate ready.")
     else:
-        print(f"  ⚠️  {failed} mismatch(es). Fix before pushing.")
+        print(f"  \u26a0\ufe0f  {failed} mismatch(es). Fix before pushing.")
     print(f"{'=' * 80}\n")
 
     sys.exit(1 if failed > 0 else 0)

@@ -11,11 +11,19 @@
 # version: v2  = deferred (tell Sumit)
 # ─────────────────────────────────────────────────────────
 
+# NOTE ON R-ids vs P-ids (raised by Samarth/Adhiraj):
+# - R-id (rule id) = what detectors use in Signal.rule_id
+# - P-id (policy id) = what the audit log uses in policy_triggered
+# - Mapping is 1:1:  R-01 → P-01,  R-02 → P-02,  etc.
+# - Nikhil's audit logger should read policy_id from this catalog
+#   when writing the AuditRecord.
+#
 policies:
 
   # ═══════ V1 RULES (building now) ═══════
 
   - id: "R-01"
+    policy_id: "P-01"
     title: "Customer PII Protection"
     threat_id: "T-01"
     disposition: STOP
@@ -34,6 +42,7 @@ policies:
     version: v1
 
   - id: "R-02"
+    policy_id: "P-02"
     title: "SMR/TTR Content Protection"
     threat_id: "T-02"
     disposition: STOP
@@ -54,6 +63,7 @@ policies:
     version: v1
 
   - id: "R-03"
+    policy_id: "P-03"
     title: "Compliance Control Bypass Prevention"
     threat_id: "T-03"
     disposition: STOP
@@ -73,6 +83,7 @@ policies:
     version: v1
 
   - id: "R-04"
+    policy_id: "P-04"
     title: "System Attack Prevention"
     threat_id: "T-04"
     disposition: STOP
@@ -92,6 +103,7 @@ policies:
     version: v1
 
   - id: "R-05"
+    policy_id: "P-05"
     title: "Bulk Data Extraction"
     threat_id: "T-05"
     disposition: ESCALATE
@@ -109,6 +121,7 @@ policies:
     version: v1
 
   - id: "R-06"
+    policy_id: "P-06"
     title: "Prompt Injection Defence"
     threat_id: "T-06"
     disposition: STOP
@@ -128,6 +141,7 @@ policies:
     version: v1
 
   - id: "R-07"
+    policy_id: "P-07"
     title: "Internal Secret and Credential Exposure"
     threat_id: "T-07"
     disposition: STOP
@@ -147,6 +161,7 @@ policies:
     version: v1
 
   - id: "R-08"
+    policy_id: "P-08"
     title: "Cross-Organisation Data Contamination"
     threat_id: "T-08"
     disposition: ESCALATE
@@ -165,6 +180,7 @@ policies:
     version: v1
 
   - id: "R-09"
+    policy_id: "P-09"
     title: "Compliance Reporting Manipulation"
     threat_id: "T-09"
     disposition: STOP
@@ -185,6 +201,7 @@ policies:
   # ═══════ V2 RULES (deferred — tell Sumit) ═══════
 
   - id: "R-10"
+    policy_id: "P-10"
     title: "Multi-Turn Progressive Escalation"
     threat_id: "T-10"
     disposition: ESCALATE
@@ -198,6 +215,7 @@ policies:
     defer_reason: "Needs conversation store — not building in V1"
 
   - id: "R-11"
+    policy_id: "P-11"
     title: "AI Compliance Decision Prevention"
     threat_id: "T-11"
     disposition: ESCALATE
@@ -211,6 +229,7 @@ policies:
     defer_reason: "V1 uses ESCALATE as fallback. V2 will add CONSTRAIN disposition — AI answers but appends mandatory deferral notice."
 
   - id: "R-12"
+    policy_id: "P-12"
     title: "Automated System Anomaly Detection"
     threat_id: "T-12"
     disposition: ESCALATE
@@ -224,6 +243,7 @@ policies:
     defer_reason: "Needs behavioural baseline engine — not in V1"
 
   - id: "R-13"
+    policy_id: "P-13"
     title: "Adversary Behavioural Detection"
     threat_id: "T-13"
     disposition: ESCALATE
@@ -245,6 +265,7 @@ policies:
   # and regulatory traceability.
 
   - id: "R-14"
+    policy_id: "P-14"
     title: "Malware Creation Assistance"
     threat_id: "T-14"
     disposition: STOP
@@ -263,6 +284,7 @@ policies:
     defer_reason: "Partially covered by R-04; full malware-specific patterns in V2"
 
   - id: "R-15"
+    policy_id: "P-15"
     title: "Phishing / Social Engineering Content"
     threat_id: "T-15"
     disposition: STOP
@@ -281,6 +303,7 @@ policies:
     defer_reason: "Needs impersonation/deception intent classifier — V2"
 
   - id: "R-16"
+    policy_id: "P-16"
     title: "Credential Harvesting Tool Creation"
     threat_id: "T-16"
     disposition: STOP
@@ -299,6 +322,7 @@ policies:
     defer_reason: "Partially covered by R-04 and R-07; dedicated patterns in V2"
 
   - id: "R-17"
+    policy_id: "P-17"
     title: "Password Cracking / Brute-Force Assistance"
     threat_id: "T-17"
     disposition: STOP
@@ -316,6 +340,7 @@ policies:
     defer_reason: "Partially covered by R-04; hash/wordlist detection in V2"
 
   - id: "R-18"
+    policy_id: "P-18"
     title: "Privilege Escalation on External Systems"
     threat_id: "T-18"
     disposition: STOP
@@ -334,6 +359,7 @@ policies:
     defer_reason: "Partially covered by R-04; foothold-detection patterns in V2"
 
   - id: "R-19"
+    policy_id: "P-19"
     title: "DDoS / Denial-of-Service Tool Creation"
     threat_id: "T-19"
     disposition: STOP
@@ -353,6 +379,7 @@ policies:
     defer_reason: "Partially covered by R-04; volume/amplification patterns in V2"
 
   - id: "R-20"
+    policy_id: "P-20"
     title: "Model Extraction / Training Data Leakage"
     threat_id: "T-20"
     disposition: STOP
