@@ -1,0 +1,28 @@
+[project]
+name = "sentinal-acs"
+version = "0.1.0"
+description = "Sentinel policy enforcement point with audit and monitoring stubs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [ { name = "Sentinel Team" } ]
+
+[project.dependencies]
+fastapi = "^0.114.0"
+uvicorn = "^0.24.0"
+asyncpg = "^0.29.0"
+presidio-analyzer = "^2.2.0"
+presidio-anonymizer = "^2.2.0"
+pybloom-live = "^2.0.0"
+cedar-python = "^0.1.0"
+
+[project.optional-dependencies]
+# Audit runtime dependencies are isolated here; the repo includes requirements-audit.txt.
+auditing = [ "asyncpg>=0.29.0" ]
+
+[tool.setuptools]
+packages = [ "app", "app.audit", "app.assistant", "app.escalation", "app.identity", "app.pdp", "app.policy" ]
+
+[build-system]
+requires = [ "setuptools>=65.0.0", "wheel" ]
+build-backend = "setuptools.build_meta"
