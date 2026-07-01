@@ -1,0 +1,11 @@
+
+# --- Python / audit (added by Nikhil) ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.db-wal
+*.db-shm
+sentinel_audit.db*
+.env
+*.pem
