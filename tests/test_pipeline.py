@@ -70,3 +70,42 @@ def test_policy_version_stamped_from_snapshot() -> None:
     pipe = Pipeline(PolicyStore(snap), stages=[_noop])
     result = pipe.evaluate(CTX, "hello")
     assert result.policy_version == "v1.0"
+
+
+# --- decision cache ---
+
+def test_identical_request_is_cache_hit_and_skips_stages() -> None:
+    calls: list[int] = []
+
+    def counting(ctx, prompt, snap):
+        calls.append(1)
+        return None
+
+    pipe = Pipeline(PolicyStore(Snapshot.empty()), stages=[counting])
+    first = pipe.evaluate(CTX, "same prompt")
+    second = pipe.evaluate(CTX, "same prompt")
+
+    assert first is second               # same cached Decision object
+    assert pipe.cache_info().hits == 1   # second call was a hit
+    assert calls == [1]                  # stage ran only once
+
+
+def test_different_prompt_is_cache_miss() -> None:
+    pipe = Pipeline(PolicyStore(Snapshot.empty()), stages=[_noop])
+    pipe.evaluate(CTX, "a")
+    pipe.evaluate(CTX, "b")
+    info = pipe.cache_info()
+    assert info.hits == 0 and info.misses == 2
+
+
+def test_reload_invalidates_cache() -> None:
+    store = PolicyStore(Snapshot.empty())
+    pipe = Pipeline(store, stages=[_noop])
+    pipe.evaluate(CTX, "x")
+    pipe.evaluate(CTX, "x")
+    assert pipe.cache_info().hits == 1
+
+    store.reload(Snapshot.empty())        # new snapshot object -> cache must drop
+    pipe.evaluate(CTX, "x")               # miss again, not a stale hit
+    assert pipe.cache_info().hits == 1    # unchanged (this was a miss)
+    assert pipe.cache_info().size == 1    # cache rebuilt for the new snapshot

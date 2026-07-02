@@ -54,6 +54,11 @@ class PolicyStore:
         """Return the current snapshot (a plain atomic reference read)."""
         return self._active
 
+    @property
+    def bundle_path(self) -> Path:
+        """The policy bundle directory this store loads from (used by the watcher)."""
+        return self._bundle_path
+
     def reload(self, new: Snapshot) -> None:
         """Atomically swap in a provided snapshot under a lock."""
         with self._lock:

@@ -34,9 +34,16 @@ def _authz_stage(ctx: "RequestContext", prompt: str, snap: Snapshot) -> Optional
     ALLOW means no objection (return None). Anything else becomes a Decision with
     an ``authz`` Signal. An unrecognised result fails closed to ESCALATE.
     """
-    from app.pdp.authz.cedar_engine import evaluate as cedar_evaluate  # lazy import
+    from app.pdp.authz.cedar_engine import (  # lazy import
+        evaluate as cedar_evaluate,
+        get_default_action,
+    )
 
-    result = cedar_evaluate(ctx, action="chat")
+    # Use the role-appropriate default action (Anamika's Day-4 helper) instead of a
+    # hardcoded "chat", so non-code roles (ComplianceOfficer/Support) aren't STOP'd
+    # at Stage 3 for legitimate requests. Cross-org (R-08) stays in the detector
+    # layer, so authz denials here are pure authorization (rule_id R-AUTH).
+    result = cedar_evaluate(ctx, action=get_default_action(ctx))
     if result == "ALLOW":
         return None
     disposition = Disposition.__members__.get(result, Disposition.ESCALATE)
