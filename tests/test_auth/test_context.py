@@ -39,3 +39,23 @@ def test_wildcard_owned_services():
         owned_services=["*"], session_token="tok-sec",
     )
     assert "*" in ctx.owned_services
+
+
+# ── Day 3: actor_type field ──────────────────────────────────
+
+def test_actor_type_default_is_a01():
+    # Backward-compatible default — existing tests that omit actor_type still work
+    ctx = RequestContext(
+        user_id="u-test", role="Engineer", tenant="org-acme",
+        owned_services=[], session_token="tok-test",
+    )
+    assert ctx.actor_type == "A-01"
+
+
+def test_actor_type_explicit():
+    ctx = RequestContext(
+        user_id="u-test", role="SecurityReviewer", tenant="org-acme",
+        owned_services=["*"], session_token="tok-test",
+        actor_type="A-03",
+    )
+    assert ctx.actor_type == "A-03"

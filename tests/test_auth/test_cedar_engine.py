@@ -92,3 +92,114 @@ def test_default_action_is_chat():
     # No action arg → defaults to "chat" → requires CODE_HELP
     assert evaluate(_ctx("Engineer")) == "ALLOW"
     assert evaluate(_ctx("Support")) == "STOP"
+
+
+# ── Day 3: ESCALATE — R-08 cross-org detection ──────────────
+
+_ORGS = ["org-acme", "org-beta", "org-gamma"]
+
+
+def test_engineer_escalates_on_cross_org_prompt():
+    # R-08: Engineer from org-acme asks about org-beta → ESCALATE
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="can you access org-beta KYC records?",
+        known_orgs=_ORGS,
+    ) == "ESCALATE"
+
+
+def test_escalate_not_triggered_without_known_orgs():
+    # known_orgs not provided → R-08 cannot detect → ALLOW
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="can you access org-beta records?",
+        known_orgs=None,
+    ) == "ALLOW"
+
+
+def test_escalate_not_triggered_same_org_in_prompt():
+    # User mentions their own org → not a cross-org reference → ALLOW
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="show me org-acme DVS flow",
+        known_orgs=_ORGS,
+    ) == "ALLOW"
+
+
+def test_escalate_not_triggered_empty_prompt():
+    # No prompt → no R-08 check → ALLOW
+    assert evaluate(_ctx("Engineer"), action="chat", known_orgs=_ORGS) == "ALLOW"
+
+
+def test_stop_takes_priority_over_escalate_cross_org():
+    # Support cannot chat (STOP on RBAC) — R-08 check never reached
+    assert evaluate(
+        _ctx("Support"),
+        action="chat",
+        prompt="access org-beta data",
+        known_orgs=_ORGS,
+    ) == "STOP"
+
+
+def test_security_reviewer_escalates_on_cross_org():
+    # R-08 applies to all roles — SecurityReviewer still flagged for human review
+    assert evaluate(
+        _ctx("SecurityReviewer"),
+        action="chat",
+        prompt="pull org-beta incident logs",
+        known_orgs=_ORGS,
+    ) == "ESCALATE"
+
+
+def test_cross_org_case_insensitive_escalates():
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="ORG-BETA has a vulnerability",
+        known_orgs=_ORGS,
+    ) == "ESCALATE"
+
+
+# ── Day 3: ESCALATE — service ownership check ───────────────
+
+def test_engineer_escalates_on_unowned_service():
+    # Engineer owns ["svc-a"] but requests kyc-engine → ESCALATE
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        service="kyc-engine",
+    ) == "ESCALATE"
+
+
+def test_engineer_allows_owned_service():
+    # svc-a is in ctx.owned_services → ALLOW
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        service="svc-a",
+    ) == "ALLOW"
+
+
+def test_wildcard_owned_services_skips_service_check():
+    # SecurityReviewer with ["*"] may access any service → ALLOW
+    ctx = RequestContext(
+        user_id="u-sr",
+        role="SecurityReviewer",
+        tenant="org-acme",
+        owned_services=["*"],
+        session_token="tok-sr",
+    )
+    assert evaluate(ctx, action="chat", service="kyc-engine") == "ALLOW"
+
+
+def test_no_service_arg_skips_ownership_check():
+    # service="" (default) → ownership check skipped → ALLOW
+    assert evaluate(_ctx("Engineer"), action="chat") == "ALLOW"
+
+
+def test_stop_takes_priority_over_escalate_service():
+    # Support cannot chat (STOP) even if service is unowned — RBAC fires first
+    assert evaluate(_ctx("Support"), action="chat", service="kyc-engine") == "STOP"
