@@ -98,6 +98,8 @@ _BYPASS_OK = re.compile(
     r"|(?:how|why)\s+does\s+(?:the|our)"
     r"|improve\s+(?:the\s+)?performance"
     r"|false\s+positive"
+    r"|bypass\s+(?:rate|percent|metric|ratio)"
+    r"|reduce\s+(?:the\s+)?(?:bypass|skip)"
     r")\b",
     re.IGNORECASE,
 )
@@ -151,9 +153,10 @@ _ATTACK_OK = re.compile(
     r"|what\s+is\s+(?:a\s+)?(?:SQL\s*injection|XSS)"
     r"|defend\s+against|protect\s+against|prevent"
     r"|(?:how|what)\s+(?:do\s+)?we\s+(?:defend|protect|prevent)"
-    r"|review\s+(?:this|my|the)\s+code\s+for"
+    r"|review\s+(?:this|my|the)\s+(?:\w+\s+)+(?:for|against)"
+    r"|suggest\w*\s+fix\w*|find\s+and\s+fix|patch|remediat"
     r"|sanitisation|sanitization|input\s+validat"
-    r")\b",
+    r")",
     re.IGNORECASE,
 )
 
