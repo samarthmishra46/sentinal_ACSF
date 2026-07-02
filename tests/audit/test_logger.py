@@ -8,10 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from typing import Sequence
 
 import pytest
 
-from app.audit import AsyncAuditLogger, AuditRecord, SqliteBackend
+from app.audit import (
+    AsyncAuditLogger,
+    AuditBackend,
+    AuditRecord,
+    AuditUnavailable,
+    SqliteBackend,
+)
 from app.audit.models import hash_prompt
 
 
@@ -171,8 +178,8 @@ def test_all_v1_decisions_logged(tmp_path):
         await logger.stop(drain=True)
         await backend.connect()
         try:
-            stops = await backend.fetch("decision = ?", ("STOP",))
-            escs = await backend.fetch("decision = ?", ("ESCALATE",))
+            stops = await backend.fetch(decision="STOP")
+            escs = await backend.fetch(decision="ESCALATE")
             total = await backend.count()
         finally:
             await backend.close()
@@ -182,3 +189,111 @@ def test_all_v1_decisions_logged(tmp_path):
     assert total == 4
     assert stops == 1
     assert escs == 1
+
+
+# --- every decision type persists with the correct field ---------------------
+
+def test_each_decision_type_persists_correctly(tmp_path):
+    path = _db_path(tmp_path)
+
+    async def run():
+        backend = SqliteBackend(path)
+        logger = AsyncAuditLogger(backend)
+        await logger.start()
+        for d in ("ALLOW", "STOP", "REDACT", "ESCALATE"):
+            await logger.log(_record(d, rule="R-01" if d == "STOP" else ""))
+        await logger.stop(drain=True)
+        await backend.connect()
+        try:
+            out = {}
+            for d in ("ALLOW", "STOP", "REDACT", "ESCALATE"):
+                rows = await backend.fetch(decision=d)
+                out[d] = rows
+        finally:
+            await backend.close()
+        return out
+
+    out = asyncio.run(run())
+    for d, rows in out.items():
+        assert len(rows) == 1, f"{d} not persisted exactly once"
+        assert rows[0].decision == d
+
+
+# --- flush + fail-closed availability ----------------------------------------
+
+def test_flush_guarantees_persistence_before_stop(tmp_path):
+    path = _db_path(tmp_path)
+
+    async def run():
+        backend = SqliteBackend(path)
+        logger = AsyncAuditLogger(backend)
+        await logger.start()
+        for _ in range(5):
+            await logger.log(_record("STOP", rule="R-07"))
+        await logger.flush()                 # block until the worker drained
+        count = await backend.count()        # queried while logger still running
+        healthy = logger.healthy
+        await logger.stop(drain=True)
+        return count, healthy
+
+    count, healthy = asyncio.run(run())
+    assert count == 5
+    assert healthy is True
+
+
+class _FailingBackend(AuditBackend):
+    """Backend that simulates a DB outage on connect and/or write."""
+
+    def __init__(self, *, fail_connect: bool = False, fail_write: bool = False) -> None:
+        self.fail_connect = fail_connect
+        self.fail_write = fail_write
+
+    async def connect(self) -> None:
+        if self.fail_connect:
+            raise OSError("db down")
+
+    async def close(self) -> None:
+        pass
+
+    async def write(self, record: AuditRecord) -> None:
+        await self.write_many((record,))
+
+    async def write_many(self, records: Sequence[AuditRecord]) -> None:
+        if self.fail_write:
+            raise OSError("write failed")
+
+    async def count(self) -> int:
+        return 0
+
+    async def fetch(self, **kwargs) -> list[AuditRecord]:
+        return []
+
+
+def test_write_failure_marks_unhealthy_and_require_available_raises(tmp_path):
+    async def run():
+        logger = AsyncAuditLogger(_FailingBackend(fail_write=True))
+        await logger.start()
+        assert logger.available is True          # healthy until a write fails
+        await logger.log(_record("STOP", rule="R-07"))
+        await logger.flush()                     # worker attempts the write, fails
+        healthy_after = logger.healthy
+        await logger.stop(drain=True)
+        return healthy_after, logger
+
+    healthy_after, logger = asyncio.run(run())
+    assert healthy_after is False
+    with pytest.raises(AuditUnavailable):
+        logger.require_available()
+
+
+def test_start_connect_failure_raises_audit_unavailable():
+    async def run():
+        logger = AsyncAuditLogger(_FailingBackend(fail_connect=True))
+        with pytest.raises(AuditUnavailable):
+            await logger.start()
+        return logger
+
+    logger = asyncio.run(run())
+    assert logger.healthy is False
+    with pytest.raises(AuditUnavailable):
+        logger.require_available()

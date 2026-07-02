@@ -58,12 +58,22 @@ class AuditBackend(ABC):
     async def count(self) -> int: ...
 
     @abstractmethod
-    async def fetch(self, where: str = "", params: Sequence[Any] = ()) -> list[AuditRecord]:
-        """Return records matching an optional WHERE clause, newest first.
+    async def fetch(
+        self,
+        *,
+        decision: str | None = None,
+        since_ts: str | None = None,
+        user_id: str | None = None,
+        rule_triggered: str | None = None,
+        limit: int | None = None,
+    ) -> list[AuditRecord]:
+        """Return records matching structured filters, newest first (by ``seq``).
 
-        ``where`` is a raw SQL fragment *without* the ``WHERE`` keyword. Callers
-        are trusted internal code (demo/review queries); always parameterise
-        user-derived values via ``params``.
+        Filters combine with AND. ``since_ts`` is an ISO-8601 UTC string and
+        matches ``ts >= since_ts`` (lexicographic == chronological for that
+        format). Structured — not a raw WHERE string — so it is portable across
+        backends, each of which renders its own dialect/placeholders. This keeps
+        the read-side query helpers (:mod:`app.audit.queries`) backend-agnostic.
         """
 
 
@@ -119,13 +129,34 @@ class SqliteBackend(AuditBackend):
         async with self._lock:
             return await self._run(_count)
 
-    async def fetch(self, where: str = "", params: Sequence[Any] = ()) -> list[AuditRecord]:
+    async def fetch(
+        self,
+        *,
+        decision: str | None = None,
+        since_ts: str | None = None,
+        user_id: str | None = None,
+        rule_triggered: str | None = None,
+        limit: int | None = None,
+    ) -> list[AuditRecord]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if decision is not None:
+            clauses.append("decision = ?"); params.append(decision)
+        if user_id is not None:
+            clauses.append("user_id = ?"); params.append(user_id)
+        if rule_triggered is not None:
+            clauses.append("rule_triggered = ?"); params.append(rule_triggered)
+        if since_ts is not None:
+            clauses.append("ts >= ?"); params.append(since_ts)
+
         def _fetch() -> list[AuditRecord]:
             assert self._conn is not None
             sql = f"SELECT {_INSERT_COLS} FROM audit_log"
-            if where:
-                sql += f" WHERE {where}"
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
             sql += " ORDER BY seq DESC"
+            if limit is not None:
+                sql += f" LIMIT {int(limit)}"
             cur = self._conn.execute(sql, tuple(params))
             return [AuditRecord.from_row(row) for row in cur.fetchall()]
 
@@ -188,12 +219,32 @@ class PostgresBackend(AuditBackend):
         async with self._pool.acquire() as conn:
             return int(await conn.fetchval("SELECT COUNT(*) FROM sentinel_audit.audit_log"))
 
-    async def fetch(self, where: str = "", params: Sequence[Any] = ()) -> list[AuditRecord]:
+    async def fetch(
+        self,
+        *,
+        decision: str | None = None,
+        since_ts: str | None = None,
+        user_id: str | None = None,
+        rule_triggered: str | None = None,
+        limit: int | None = None,
+    ) -> list[AuditRecord]:
         assert self._pool is not None, "connect() first"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if decision is not None:
+            params.append(decision); clauses.append(f"decision = ${len(params)}")
+        if user_id is not None:
+            params.append(user_id); clauses.append(f"user_id = ${len(params)}")
+        if rule_triggered is not None:
+            params.append(rule_triggered); clauses.append(f"rule_triggered = ${len(params)}")
+        if since_ts is not None:
+            params.append(since_ts); clauses.append(f"ts >= ${len(params)}::timestamptz")
         sql = f"SELECT {_INSERT_COLS} FROM sentinel_audit.audit_log"
-        if where:
-            sql += f" WHERE {where}"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY seq DESC"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
         async with self._pool.acquire() as conn:
             records = await conn.fetch(sql, *params)
         return [AuditRecord.from_row(tuple(rec.values())) for rec in records]

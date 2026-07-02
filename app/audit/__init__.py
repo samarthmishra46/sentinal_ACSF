@@ -19,7 +19,8 @@ from .models import (
     hash_prompt,
 )
 from .backends import AuditBackend, SqliteBackend, PostgresBackend
-from .logger import AsyncAuditLogger
+from .logger import AsyncAuditLogger, AuditUnavailable
+from . import queries
 
 __all__ = [
     "AuditRecord",
@@ -31,4 +32,6 @@ __all__ = [
     "SqliteBackend",
     "PostgresBackend",
     "AsyncAuditLogger",
+    "AuditUnavailable",
+    "queries",
 ]

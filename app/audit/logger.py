@@ -25,6 +25,15 @@ log = logging.getLogger("sentinel.audit")
 _STOP = object()
 
 
+class AuditUnavailable(RuntimeError):
+    """Raised when the audit log cannot guarantee a record was persisted.
+
+    The PEP catches this to **fail closed** — ESCALATE rather than answer a
+    request that couldn't be audited (a compliance requirement: no un-audited
+    decisions reach the user).
+    """
+
+
 class AsyncAuditLogger:
     def __init__(
         self,
@@ -59,14 +68,55 @@ class AsyncAuditLogger:
         """Records dropped because the queue was full (log_nowait backpressure)."""
         return self._dropped
 
+    @property
+    def available(self) -> bool:
+        """True only if the logger can accept and (so far) persist records.
+
+        Combines the backend health flag with a live worker task. This is the
+        single check the PEP should gate on before answering a request.
+        """
+        return self._healthy and self._worker is not None and not self._worker.done()
+
+    def require_available(self) -> None:
+        """Raise :class:`AuditUnavailable` if the audit log isn't healthy.
+
+        Fail-closed helper for the PEP::
+
+            try:
+                logger.require_available()
+            except AuditUnavailable:
+                return escalate("audit log unavailable")  # don't answer un-audited
+        """
+        if not self.available:
+            raise AuditUnavailable("audit log is not available (backend unhealthy or worker stopped)")
+
+    async def flush(self) -> None:
+        """Block until every queued record has been processed by the worker.
+
+        Lets the PEP guarantee a specific decision is durably audited *before*
+        responding — e.g. for STOP/ESCALATE, ``await log(rec); await flush()`` then
+        check :attr:`healthy`. No-op if not started.
+        """
+        if self._queue is not None:
+            await self._queue.join()
+
     # --- lifecycle -----------------------------------------------------------
 
     async def start(self) -> None:
-        """Connect the backend and spawn the background writer."""
+        """Connect the backend and spawn the background writer.
+
+        If the backend can't connect (e.g. the DB is down at startup), mark
+        unhealthy and re-raise so the app can fail closed rather than boot with a
+        silently broken audit trail.
+        """
         if self._worker is not None:
             return
         self._queue = asyncio.Queue(maxsize=self.maxsize)
-        await self.backend.connect()
+        try:
+            await self.backend.connect()
+        except Exception as exc:  # noqa: BLE001
+            self._healthy = False
+            raise AuditUnavailable(f"audit backend failed to connect: {exc!r}") from exc
         self._worker = asyncio.create_task(self._run(), name="audit-writer")
 
     async def stop(self, *, drain: bool = True) -> None:
