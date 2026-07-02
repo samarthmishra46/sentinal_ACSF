@@ -41,9 +41,9 @@ curl http://127.0.0.1:8000/health
 pytest
 ```
 
-> Note: the detector tests under `tests/detectors/` manipulate `sys.path`, which
-> can break full-suite collection. Until that's fixed, run the suite with
-> `pytest --ignore=tests/detectors`.
+The full suite runs clean in one shot (no `--ignore` needed). It includes the
+red-team gate (`tests/eval/`), which fires all 13 adversarial prompts through the
+real pipeline and asserts each verdict.
 
 ## Configuration
 
