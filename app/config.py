@@ -10,6 +10,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_URL = f"sqlite:///{ROOT / 'audit.db'}"
 DEFAULT_POLICY_BUNDLE_PATH = ROOT / "policies" / "v1"
 
+# Known organisation / tenant names in the system. Used by R-08 cross-org
+# detection (app/pdp/authz/scope.py::detect_cross_org): a prompt that references
+# an org other than the caller's own tenant is flagged for ESCALATE. Override at
+# runtime with a comma-separated KNOWN_ORGS env var.
+DEFAULT_KNOWN_ORGS = ["org-acme", "org-beta", "firm-alpha", "firm-beta"]
+
 
 def _env_int(name: str, default: int) -> int:
     value = os.getenv(name)
@@ -19,6 +25,14 @@ def _env_int(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         raise ValueError(f"{name} must be an integer, got {value!r}")
+
+
+def _env_list(name: str, default: list[str]) -> list[str]:
+    """Parse a comma-separated env var into a list of trimmed strings."""
+    value = os.getenv(name)
+    if value is None:
+        return list(default)
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 class Settings:
@@ -31,6 +45,7 @@ class Settings:
         self.POLICY_BUNDLE_PATH: Path = Path(
             os.getenv("POLICY_BUNDLE_PATH", DEFAULT_POLICY_BUNDLE_PATH)
         ).resolve()
+        self.KNOWN_ORGS: list[str] = _env_list("KNOWN_ORGS", DEFAULT_KNOWN_ORGS)
 
 
 settings = Settings()
