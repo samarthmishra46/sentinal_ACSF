@@ -66,13 +66,33 @@ class _StubBaseDetector(ABC):
     def scan(self, ctx, prompt, snap): ...
 
 
+# Load the REAL shared modules first when they exist (they do on devlop now that
+# identity is merged). This makes the guarded _ensure() below see the real
+# modules and leave them untouched — so this test neither uses fakes nor
+# registers fakes that could break other files loaded after it (the sys.modules
+# pollution Ryan flagged). In the standalone audit repo these don't exist, so we
+# swallow the ImportError and _ensure() falls back to stubs.
+import importlib
+
+for _real in (
+    "app.pdp.decision",
+    "app.pdp.detectors.base",
+    "app.identity.context",
+    "app.policy.models",
+):
+    try:
+        importlib.import_module(_real)
+    except Exception:
+        pass
+
+
 def _ensure(path: str, **attrs) -> types.ModuleType:
     """Register a stub module ONLY if absent; never overwrite a real attribute.
 
     In this standalone repo the ``app.*`` modules don't exist, so the stubs are
     used. On the team repo (devlop) the real modules are present and used as-is;
-    we only fill the ones still missing (e.g. ``app.identity.context``). This
-    keeps the test from polluting teammates' real modules.
+    we only fill the ones still missing. This keeps the test from polluting
+    teammates' real modules.
     """
     mod = sys.modules.get(path)
     if mod is None:

@@ -185,6 +185,8 @@ class AuditRecord:
         prompt: str | None = None,
         latency_ms: float = 0.0,
         policy_version: str = POLICY_VERSION,
+        policy_triggered: str | None = None,
+        actor_type: str | None = None,
     ) -> "AuditRecord":
         """Build a record from teammates' objects without importing their types.
 
@@ -194,6 +196,13 @@ class AuditRecord:
         Ryan/Anamika's ``RequestContext`` (``user_id``, ``role``, ``service``,
         ``actor_type``). Everything is read via :func:`getattr` with fallbacks,
         so this works against whatever shape those modules land on.
+
+        ``policy_triggered`` / ``actor_type`` are explicit overrides for values the
+        PEP resolves outside the Decision: Ryan's audit hook computes
+        ``policy_triggered`` from the shared catalog
+        (``policy_for(snapshot, rule_id)["policy_id"]``) and reads ``actor_type``
+        from the EIM-classified context, then passes them here. When given they win
+        over anything derived from ``decision``/``context``.
         """
         disp = _first_attr(decision, ("disposition", "decision", "outcome"))
         decision_str = _disposition_to_str(disp)
@@ -219,7 +228,15 @@ class AuditRecord:
         rule = _first_attr(decision, ("rule_triggered", "rule"), default=None)
         if rule is None and dsig is not None:
             rule = getattr(dsig, "rule_id", None)
-        policy = _first_attr(decision, ("policy_triggered", "policy"), default=None)
+        # Explicit override (Ryan's resolved policy_id) wins; else derive.
+        if policy_triggered is not None:
+            policy = policy_triggered
+        else:
+            policy = _first_attr(decision, ("policy_triggered", "policy"), default=None)
+        if actor_type is not None:
+            actor = actor_type
+        else:
+            actor = _first_attr(ctx, ("actor_type", "actor"), default="")
 
         # policy_version: prefer the value the pipeline stamped on the Decision.
         pv = _first_attr(decision, ("policy_version",), default=None)
@@ -231,7 +248,7 @@ class AuditRecord:
             prompt_hash=prompt_hash,
             decision=decision_str,
             reason=str(_first_attr(decision, ("reason", "message"), default="")),
-            actor_type=str(_first_attr(ctx, ("actor_type", "actor"), default="")),
+            actor_type=str(actor or ""),
             rule_triggered=str(rule or ""),
             policy_triggered=str(policy or ""),
             latency_ms=float(

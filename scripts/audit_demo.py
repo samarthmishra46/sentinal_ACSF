@@ -133,11 +133,11 @@ async def main() -> None:
         _print_records("Query 1 - all decisions this session", await backend.fetch())
         _print_records(
             "Query 2 - all STOP decisions",
-            await backend.fetch("decision = ?", ("STOP",)),
+            await backend.fetch(decision="STOP"),
         )
         _print_records(
             "Query 3 - all ESCALATE decisions",
-            await backend.fetch("decision = ?", ("ESCALATE",)),
+            await backend.fetch(decision="ESCALATE"),
         )
 
         # Prove tamper-evidence: the append-only trigger rejects mutation.

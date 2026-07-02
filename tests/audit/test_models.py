@@ -280,3 +280,19 @@ def test_from_decision_picks_strictest_signal_rule():
     rec = AuditRecord.from_decision(decision, _RequestContext(), prompt="x")
     # decisive_signal is the STOP one -> R-07, not R-01.
     assert rec.rule_triggered == "R-07"
+
+
+def test_from_decision_policy_and_actor_overrides():
+    # Ryan resolves policy_triggered from the shared catalog and reads actor_type
+    # from the EIM-classified context, then passes both in; overrides must win.
+    sig = _Signal("secrets_scanner", "R-07", _Disposition.STOP, "creds")
+    decision = _Decision(_Disposition.STOP, "creds", (sig,))
+    ctx = _RequestContext(actor_type="A-01")
+    rec = AuditRecord.from_decision(
+        decision, ctx, prompt="x",
+        policy_triggered="P-07",   # from policy_for(snapshot, "R-07")["policy_id"]
+        actor_type="A-04",         # EIM-classified, overrides ctx default
+    )
+    assert rec.policy_triggered == "P-07"
+    assert rec.actor_type == "A-04"
+    assert rec.rule_triggered == "R-07"
