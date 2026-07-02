@@ -1,5 +1,5 @@
 from app.identity.context import RequestContext
-from app.pdp.authz.cedar_engine import evaluate
+from app.pdp.authz.cedar_engine import evaluate, get_default_action
 
 
 def _ctx(role: str) -> RequestContext:
@@ -203,3 +203,89 @@ def test_no_service_arg_skips_ownership_check():
 def test_stop_takes_priority_over_escalate_service():
     # Support cannot chat (STOP) even if service is unowned — RBAC fires first
     assert evaluate(_ctx("Support"), action="chat", service="kyc-engine") == "STOP"
+
+
+# ── Day 4: get_default_action() helper ──────────────────────
+
+def test_default_action_engineer_is_chat():
+    assert get_default_action(_ctx("Engineer")) == "chat"
+
+def test_default_action_support_is_doc_access():
+    # Support only has DOC — "chat" would STOP them; doc_access is correct
+    assert get_default_action(_ctx("Support")) == "doc_access"
+
+def test_default_action_security_reviewer_is_chat():
+    # SecurityReviewer has CODE_HELP → chat permitted
+    assert get_default_action(_ctx("SecurityReviewer")) == "chat"
+
+def test_default_action_compliance_officer_is_compliance_review():
+    # ComplianceOfficer has REVIEW_COMP not CODE_HELP — fixes RT-02 and RT-12
+    assert get_default_action(_ctx("ComplianceOfficer")) == "compliance_review"
+
+def test_default_action_unknown_role_fallback():
+    # Unknown role falls back to "chat" (will then STOP on unknown role check)
+    assert get_default_action(_ctx("Hacker")) == "chat"
+
+def test_compliance_officer_allows_with_correct_default_action():
+    # Using get_default_action() → compliance_review → REVIEW_COMP → ALLOW
+    # This is what RT-12 expects and RT-02 needs to reach Stage 7 detectors
+    ctx = _ctx("ComplianceOfficer")
+    assert evaluate(ctx, action=get_default_action(ctx)) == "ALLOW"
+
+def test_support_allows_with_correct_default_action():
+    # Using get_default_action() → doc_access → DOC → ALLOW
+    ctx = _ctx("Support")
+    assert evaluate(ctx, action=get_default_action(ctx)) == "ALLOW"
+
+
+# ── Day 4: R5 tenant boundary enforcement ───────────────────
+
+def test_cross_tenant_stops_engineer():
+    # Engineer from org-acme trying to access org-beta resource → STOP (Cedar R5)
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        resource_tenant="org-beta",
+    ) == "STOP"
+
+def test_cross_tenant_stops_support():
+    assert evaluate(
+        _ctx("Support"),
+        action="doc_access",
+        resource_tenant="org-beta",
+    ) == "STOP"
+
+def test_cross_tenant_stops_compliance_officer():
+    assert evaluate(
+        _ctx("ComplianceOfficer"),
+        action="compliance_review",
+        resource_tenant="org-beta",
+    ) == "STOP"
+
+def test_security_reviewer_can_cross_tenant():
+    # Cedar R5 exception: SecurityReviewer may cross tenant boundaries for investigations
+    assert evaluate(
+        _ctx("SecurityReviewer"),
+        action="chat",
+        resource_tenant="org-beta",
+    ) == "ALLOW"
+
+def test_same_tenant_no_block():
+    # resource_tenant matches user's tenant → no R5 block
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        resource_tenant="org-acme",
+    ) == "ALLOW"
+
+def test_no_resource_tenant_skips_check():
+    # resource_tenant="" (default) → R5 check skipped → ALLOW
+    assert evaluate(_ctx("Engineer"), action="chat") == "ALLOW"
+
+def test_rbac_stop_before_tenant_check():
+    # Support cannot do security_review (RBAC STOP) even with wrong tenant
+    assert evaluate(
+        _ctx("Support"),
+        action="security_review",
+        resource_tenant="org-beta",
+    ) == "STOP"
