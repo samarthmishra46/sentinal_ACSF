@@ -96,35 +96,14 @@ def test_first_four_audit_record_emitted(case: dict, capsys):
     assert record["prompt_hash"], f"{case['id']}: audit record missing prompt_hash"
 
 
-@pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            c,
-            id=c["id"],
-            marks=(
-                pytest.mark.xfail(
-                    reason=(
-                        "RT-02 is STOPped at Stage 3 (authz, R-AUTH) because "
-                        "ComplianceOfficer is not permitted to chat, so Sneha's "
-                        "SMR scanner (R-02) never runs. Decision is correct but the "
-                        "rule provenance is wrong. Reported to Anamika (authz) / "
-                        "Sneha (intent). Also risks RT-12 (ComplianceOfficer ALLOW)."
-                    ),
-                    strict=False,
-                )
-                if c["id"] == "RT-02"
-                else ()
-            ),
-        )
-        for c in FIRST_FOUR
-    ],
-)
+@pytest.mark.parametrize("case", FIRST_FOUR, ids=[c["id"] for c in FIRST_FOUR])
 def test_first_four_rule_provenance(case: dict, capsys):
     """The rule that fired should match the prompt's expected_rule.
 
     This is stricter than the gate: it verifies the RIGHT control caught the
-    prompt, not just that some control did. RT-02 is a known xfail (see reason).
+    prompt, not just that some control did. RT-02 previously xfailed (it STOPped
+    at Stage-3 authz, masking Sneha's SMR rule R-02); the switch to
+    get_default_action() fixed that, so all four now assert cleanly.
     """
     _post(case)
     record = _last_audit_record(capsys.readouterr().out)
