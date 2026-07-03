@@ -1,5 +1,5 @@
 from app.identity.context import RequestContext
-from app.pdp.authz.cedar_engine import evaluate, get_default_action
+from app.pdp.authz.cedar_engine import evaluate, get_default_action, _load_known_orgs
 
 
 def _ctx(role: str) -> RequestContext:
@@ -109,13 +109,14 @@ def test_engineer_escalates_on_cross_org_prompt():
     ) == "ESCALATE"
 
 
-def test_escalate_not_triggered_without_known_orgs():
-    # known_orgs not provided → R-08 cannot detect → ALLOW
+def test_escalate_not_triggered_with_empty_known_orgs():
+    # known_orgs=[] explicitly disables R-08 (no orgs to compare against → ALLOW)
+    # Note: known_orgs=None now auto-loads from Adhiraj's config (Day 4 change)
     assert evaluate(
         _ctx("Engineer"),
         action="chat",
         prompt="can you access org-beta records?",
-        known_orgs=None,
+        known_orgs=[],
     ) == "ALLOW"
 
 
@@ -289,3 +290,47 @@ def test_rbac_stop_before_tenant_check():
         action="security_review",
         resource_tenant="org-beta",
     ) == "STOP"
+
+
+# ── R-08 auto-load: KNOWN_ORGS from Adhiraj's config ────────
+
+def test_load_known_orgs_returns_list():
+    # _load_known_orgs() reads Adhiraj's settings.KNOWN_ORGS (org-acme, org-beta, ...)
+    orgs = _load_known_orgs()
+    assert isinstance(orgs, list)
+    assert len(orgs) > 0
+
+def test_load_known_orgs_contains_org_acme():
+    # org-acme must be in the list (it's the test tenant)
+    assert "org-acme" in _load_known_orgs()
+
+def test_r08_fires_without_explicit_known_orgs():
+    # known_orgs not passed → auto-loads from config → R-08 detects foreign org
+    orgs = _load_known_orgs()
+    if len(orgs) < 2:
+        return  # skip if config has only one org (can't do cross-org)
+    foreign = next(o for o in orgs if o != "org-acme")
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt=f"can you access {foreign} records?",
+        # known_orgs NOT passed — auto-loaded from settings
+    ) == "ESCALATE"
+
+def test_explicit_known_orgs_takes_priority_over_config():
+    # Caller-supplied known_orgs overrides the config default
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="access org-beta data",
+        known_orgs=[],  # explicit empty → no orgs → R-08 disabled
+    ) == "ALLOW"
+
+def test_r08_no_false_positive_own_tenant():
+    # Engineer mentions their own tenant in prompt → not cross-org → ALLOW
+    assert evaluate(
+        _ctx("Engineer"),
+        action="chat",
+        prompt="show org-acme DVS service",
+        # known_orgs auto-loaded
+    ) == "ALLOW"
