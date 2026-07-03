@@ -6,10 +6,11 @@ from app.pdp.authz.scope import ScopeTrie
 # --- TEAM INTEGRATION POINTS ---
 # Sneha (Day 2 ✅): policies/v1/authz.cedar with Cedar rules R1-R5 — ready in devlop.
 #                   Activate _cedar_sdk_evaluate() once the cedar Python package is installed.
-# Samarth (Day 3 ✅): wired evaluate(ctx, action) as Stage 3 in factory.py/pipeline.
-#                     Day 4: replace hardcoded action="chat" with get_default_action(ctx)
-#                     to fix RT-02 (ComplianceOfficer SMR) and RT-12 (expected ALLOW).
-#                     Also pass resource_tenant= from the request so R5 tenant check fires.
+# Samarth (Day 3 ✅): wired evaluate(ctx, action) as Stage 3 + get_default_action(ctx) Day 4.
+#                     Remaining: pass prompt= and resource_tenant= from the request so
+#                     R-08 prompt scanning and R5 tenant checks fire end-to-end.
+#                     known_orgs= is now auto-loaded from Adhiraj's config — no arg needed.
+# Adhiraj (Day 4 ✅): KNOWN_ORGS in config.py — R-08 reads it automatically via _load_known_orgs().
 # Ryan: STOP → block before AI; ESCALATE → escalation queue (enforcement.py handles both).
 
 # Maps each action to the capability bit it requires (mirrors Sneha's authz.cedar rules)
@@ -38,6 +39,20 @@ _ROLE_DEFAULT_ACTION: dict[str, str] = {
     "SecurityReviewer":  "chat",              # CODE_HELP + REVIEW_SEC, chat permitted
     "ComplianceOfficer": "compliance_review",  # REVIEW_COMP, not CODE_HELP
 }
+
+
+def _load_known_orgs() -> List[str]:
+    """Load the known org list from Adhiraj's config (settings.KNOWN_ORGS).
+
+    Used as the default for known_orgs= in evaluate() so R-08 fires automatically
+    without Samarth needing to pass the list explicitly. Importing lazily (inside
+    the function) keeps the module import order clean — config is a leaf module.
+    """
+    try:
+        from app.config import settings  # lazy import — avoids circular deps
+        return list(settings.KNOWN_ORGS)
+    except Exception:
+        return []
 
 
 def get_default_action(ctx: RequestContext) -> str:
@@ -112,8 +127,11 @@ def evaluate(
         if ctx.role != "SecurityReviewer":
             return "STOP"
 
-    # R-08: cross-org prompt detection → ESCALATE for human review
-    if prompt and ScopeTrie.detect_cross_org(ctx.tenant, prompt, known_orgs):
+    # R-08: cross-org prompt detection → ESCALATE for human review.
+    # known_orgs falls back to Adhiraj's settings.KNOWN_ORGS automatically —
+    # Samarth does not need to pass this arg for R-08 to fire in production.
+    _orgs = known_orgs if known_orgs is not None else _load_known_orgs()
+    if prompt and ScopeTrie.detect_cross_org(ctx.tenant, prompt, _orgs):
         return "ESCALATE"
 
     # Service ownership: user accessing a service outside their scope → ESCALATE
