@@ -43,7 +43,14 @@ pytest
 
 The full suite runs clean in one shot (no `--ignore` needed). It includes the
 red-team gate (`tests/eval/`), which fires all 13 adversarial prompts through the
-real pipeline and asserts each verdict.
+real pipeline and asserts each verdict, plus a latency gate that asserts the input
+pipeline (stages 1–7) stays well under the 150 ms budget.
+
+To see the per-stage latency breakdown (mean / p50 / p95 / max):
+
+```bash
+python -m tests.eval.latency
+```
 
 ## Configuration
 
