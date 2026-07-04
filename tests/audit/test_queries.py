@@ -130,3 +130,52 @@ def test_for_user(tmp_path):
     rows = asyncio.run(run())
     assert len(rows) == 2
     assert {r.user_id for r in rows} == {"alice"}
+
+
+# --- Day 4: latency recorded on every record ---------------------------------
+
+def test_latency_recorded_on_every_record(tmp_path):
+    path = str(tmp_path / "q.db")
+
+    async def run():
+        b = SqliteBackend(path)
+        await b.connect()
+        await b.write_many([_rec("ALLOW", latency=l) for l in (5.0, 12.0, 30.0)])
+        missing = await queries.records_without_latency(b)
+        await b.close()
+        return missing
+
+    assert asyncio.run(run()) == []          # every record has a measured latency
+
+
+def test_records_without_latency_flags_zero(tmp_path):
+    path = str(tmp_path / "q.db")
+
+    async def run():
+        b = SqliteBackend(path)
+        await b.connect()
+        await b.write_many([_rec("ALLOW", latency=10.0), _rec("STOP", latency=0.0)])
+        missing = await queries.records_without_latency(b)
+        await b.close()
+        return missing
+
+    missing = asyncio.run(run())
+    assert len(missing) == 1
+    assert missing[0].decision == "STOP"
+
+
+def test_format_records_table_has_columns_and_no_raw_prompt(tmp_path):
+    path = str(tmp_path / "q.db")
+
+    async def run():
+        b = SqliteBackend(path)
+        await b.connect()
+        await b.write_many([_rec("STOP", rule="R-07", latency=9.9)])
+        recs = await queries.all_records(b)
+        await b.close()
+        return recs
+
+    table = queries.format_records_table(asyncio.run(run()))
+    assert "DECISION" in table and "LATENCY" in table
+    assert "STOP" in table and "R-07" in table
+    assert "9.9ms" in table

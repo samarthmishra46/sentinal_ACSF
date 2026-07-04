@@ -102,3 +102,48 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
     rank = math.ceil((pct / 100.0) * len(sorted_values))
     idx = min(max(rank, 1), len(sorted_values)) - 1
     return sorted_values[idx]
+
+
+# --- Day 4: full-table view + latency verification ---------------------------
+
+async def all_records(backend: AuditBackend, *, limit: int | None = None) -> list[AuditRecord]:
+    """Every record, newest first (the "all decisions this session" demo query)."""
+    return await backend.fetch(limit=limit)
+
+
+async def records_without_latency(backend: AuditBackend) -> list[AuditRecord]:
+    """Records whose ``latency_ms`` was never measured (<= 0).
+
+    Day-4 verification: this list must be empty — every decision should carry an
+    end-to-end latency. If it isn't, the PEP is failing to time some path.
+    """
+    return [r for r in await backend.fetch() if not r.latency_ms or r.latency_ms <= 0]
+
+
+def format_records_table(records: list[AuditRecord]) -> str:
+    """Render records as a fixed-width table — the "compliance record" view.
+
+    Shared by the demo/report scripts so the printed/screenshot table is
+    consistent. Shows the audit-relevant columns; never the raw prompt (only its
+    hash), by construction.
+    """
+    cols = [
+        ("timestamp", 19), ("user_id", 10), ("role", 12), ("actor", 6),
+        ("decision", 9), ("rule", 6), ("policy", 6), ("latency", 9), ("prompt_hash", 12),
+    ]
+    header = "  ".join(name.upper().ljust(w) for name, w in cols)
+    lines = [header, "-" * len(header)]
+    for r in records:
+        cells = [
+            r.timestamp[:19].ljust(19),
+            r.user_id[:10].ljust(10),
+            r.role[:12].ljust(12),
+            (r.actor_type or "-")[:6].ljust(6),
+            r.decision[:9].ljust(9),
+            (r.rule_triggered or "-")[:6].ljust(6),
+            (r.policy_triggered or "-")[:6].ljust(6),
+            f"{r.latency_ms:.1f}ms".ljust(9),
+            (r.prompt_hash[:10] + "..").ljust(12),
+        ]
+        lines.append("  ".join(cells))
+    return "\n".join(lines)

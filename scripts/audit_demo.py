@@ -33,7 +33,7 @@ except Exception:  # pragma: no cover - older interpreters / redirected stdout
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.audit import AsyncAuditLogger, AuditRecord, SqliteBackend  # noqa: E402
+from app.audit import AsyncAuditLogger, AuditRecord, SqliteBackend, queries  # noqa: E402
 
 
 # Four illustrative requests, each tied to a real rule from the policy doc.
@@ -86,7 +86,35 @@ SAMPLE_REQUESTS = [
         reason="Bulk extraction pattern; held for human reviewer (R-05).",
         signals=["bulk:export_all", "bulk:no_where_clause"],
     ),
+    dict(
+        user_id="u-omar",
+        role="Support",
+        actor_type="A-01",
+        service="docs",
+        prompt="Summarise the AUSTRAC SMR filing steps in the onboarding docs.",
+        decision="ALLOW",
+        rule_triggered="",
+        policy_triggered="",
+        reason="General compliance documentation question; allowed.",
+        signals=[],
+    ),
+    dict(
+        user_id="u-aisha",
+        role="Engineer",
+        actor_type="A-01",
+        service="risk-scoring",
+        prompt="Compare Firm A and Firm B risk matrix thresholds side by side.",
+        decision="ESCALATE",
+        rule_triggered="R-08",
+        policy_triggered="P-04",
+        reason="Cross-organisation reference detected; held for reviewer (R-08).",
+        signals=["crossorg:two_tenants"],
+    ),
 ]
+
+# Per-record end-to-end latencies (ms) — varied so the demo table + distribution
+# look like real traffic.
+LATENCIES = [6.2, 14.8, 9.1, 22.5, 5.4, 18.0]
 
 
 def _print_records(title: str, records: list[AuditRecord]) -> None:
@@ -107,7 +135,7 @@ async def main() -> None:
     await logger.start()
 
     # Simulate a request flow: each request -> AuditRecord -> enqueue.
-    for req in SAMPLE_REQUESTS:
+    for i, req in enumerate(SAMPLE_REQUESTS):
         record = AuditRecord.new(
             user_id=req["user_id"],
             role=req["role"],
@@ -118,7 +146,7 @@ async def main() -> None:
             actor_type=req["actor_type"],
             rule_triggered=req["rule_triggered"],
             policy_triggered=req["policy_triggered"],
-            latency_ms=12.5,
+            latency_ms=LATENCIES[i % len(LATENCIES)],
             signals=req["signals"],
         )
         await logger.log(record)
@@ -139,6 +167,19 @@ async def main() -> None:
             "Query 3 - all ESCALATE decisions",
             await backend.fetch(decision="ESCALATE"),
         )
+
+        # Full audit-log table — the "7-year compliance record" view for the demo.
+        all_records = await queries.all_records(backend)
+        print("\n=== Audit log table (compliance record) ===")
+        print(queries.format_records_table(all_records))
+        print(f"\n  decision counts: {await queries.decision_counts(backend)}")
+        print(f"  latency: {await queries.latency_stats(backend)}")
+
+        # Day-4 verification: latency_ms recorded on every record.
+        missing = await queries.records_without_latency(backend)
+        ok = len(all_records) - len(missing)
+        tag = "[OK]" if not missing else "[FAIL]"
+        print(f"  {tag} latency_ms recorded on {ok}/{len(all_records)} records")
 
         # Prove tamper-evidence: the append-only trigger rejects mutation.
         print("\n=== Append-only check ===")
