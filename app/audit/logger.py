@@ -47,6 +47,7 @@ class AsyncAuditLogger:
         self.batch_size = batch_size
         self._queue: Optional[asyncio.Queue] = None
         self._worker: Optional[asyncio.Task] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
         self._written = 0
         self._dropped = 0
@@ -112,6 +113,7 @@ class AsyncAuditLogger:
         if self._worker is not None:
             return
         self._queue = asyncio.Queue(maxsize=self.maxsize)
+        self._loop = asyncio.get_running_loop()  # for thread-safe submit()
         try:
             await self.backend.connect()
         except Exception as exc:  # noqa: BLE001
@@ -151,6 +153,10 @@ class AsyncAuditLogger:
 
         Use on the hot path when you would rather drop-and-count than block. The
         caller can react to a False by failing closed.
+
+        Must be called from the **event-loop thread** (``asyncio.Queue`` is not
+        thread-safe). From another thread — e.g. a sync FastAPI/Starlette route
+        running in the threadpool — use :meth:`submit` instead.
         """
         assert self._queue is not None, "call start() first"
         try:
@@ -159,6 +165,30 @@ class AsyncAuditLogger:
         except asyncio.QueueFull:
             self._dropped += 1
             log.error("audit queue full; dropped record %s", record.request_id)
+            return False
+
+    def submit(self, record: AuditRecord) -> bool:
+        """Thread-safe enqueue for callers NOT on the event-loop thread.
+
+        A **sync** ``def`` route in FastAPI/Starlette runs in the threadpool, so
+        it cannot touch the ``asyncio.Queue`` directly. ``submit`` hops onto the
+        logger's event loop via ``call_soon_threadsafe`` and enqueues there. It is
+        fire-and-forget: returns ``True`` if the enqueue was scheduled, ``False``
+        if the logger isn't running (loop closed / not started) — in which case
+        the caller should fail closed (ESCALATE) just like on ``not available``.
+
+        From an ``async def`` route (already on the loop), prefer
+        :meth:`log_nowait` / :meth:`log`.
+        """
+        loop = self._loop
+        if loop is None or self._queue is None or self._worker is None:
+            self._dropped += 1
+            return False
+        try:
+            loop.call_soon_threadsafe(self.log_nowait, record)
+            return True
+        except RuntimeError:  # loop already closed
+            self._dropped += 1
             return False
 
     # --- worker --------------------------------------------------------------

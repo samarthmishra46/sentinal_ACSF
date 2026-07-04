@@ -297,3 +297,36 @@ def test_start_connect_failure_raises_audit_unavailable():
     assert logger.healthy is False
     with pytest.raises(AuditUnavailable):
         logger.require_available()
+
+
+# --- thread-safe submit() (for sync FastAPI/Starlette routes) ----------------
+
+def test_submit_from_threadpool_thread_persists(tmp_path):
+    """submit() called off the event-loop thread must still enqueue + persist."""
+    path = _db_path(tmp_path)
+
+    async def run():
+        backend = SqliteBackend(path)
+        logger = AsyncAuditLogger(backend)
+        await logger.start()
+        loop = asyncio.get_running_loop()
+        # Run submit() in the default threadpool — i.e. NOT on the loop thread,
+        # exactly like a sync def route in Starlette's threadpool.
+        ok = await loop.run_in_executor(
+            None, logger.submit, _record("STOP", rule="R-07")
+        )
+        await asyncio.sleep(0)      # let the call_soon_threadsafe callback run
+        await logger.flush()        # then drain the queue
+        count = await backend.count()
+        await logger.stop(drain=True)
+        return ok, count
+
+    ok, count = asyncio.run(run())
+    assert ok is True
+    assert count == 1
+
+
+def test_submit_before_start_returns_false_and_counts_drop():
+    logger = AsyncAuditLogger(SqliteBackend(":memory:"))
+    assert logger.submit(_record("ALLOW")) is False
+    assert logger.dropped == 1
