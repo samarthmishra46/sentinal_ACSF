@@ -1,0 +1,24 @@
+# Render Blueprint for the Sentinel PEP.
+# Deploy: push this repo to GitHub, then in Render → "New +" → "Blueprint",
+# point it at the repo/branch. Render reads this file and provisions the service.
+#
+# Notes:
+#   * Render injects $PORT; uvicorn must bind 0.0.0.0:$PORT.
+#   * The app runs from the repo checkout (not a pip-installed wheel), so all
+#     __file__-relative paths (app/ui/index.html, policies/v1/, redteam prompts)
+#     resolve without any package-data config.
+#   * Free plan: the instance sleeps after ~15 min idle (first hit is slow to
+#     wake) and the disk is ephemeral — the default SQLite audit log resets on
+#     each redeploy/restart. Fine for a demo; add a Render PostgreSQL + set DB_URL
+#     for persistence later.
+services:
+  - type: web
+    name: sentinel-pep
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
