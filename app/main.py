@@ -12,11 +12,16 @@ spawn worker on startup; drain the queue on shutdown). Without the lifespan
 (bare TestClient in unit tests) the audit hook stays on its console fallback.
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.pep import audit_hook, ingress
+
+# Minimal demo frontend, served same-origin so the browser needs no CORS.
+_UI_INDEX = Path(__file__).parent / "ui" / "index.html"
 
 
 @asynccontextmanager
@@ -40,6 +45,12 @@ class ChatResponse(BaseModel):
     decision: str
     reason: str
     response: str | None
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Serve the minimal demo frontend (same-origin, so no CORS needed)."""
+    return FileResponse(_UI_INDEX)
 
 
 @app.get("/health")
