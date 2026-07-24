@@ -19,11 +19,14 @@ def _ctx(role: str) -> RequestContext:
 
 
 def test_default_stages_wires_authz_then_detectors() -> None:
-    # Day 2: authorization (stage 3) first, then detectors 4-7.
+    # authorization (stage 3) first, then detectors 4-8 in stage_order.
+    # Stage 8 (injection_ml_scanner) is always wired but no-ops unless enabled.
     names = [s.__name__ for s in default_stages()]
     assert names[0] == "_authz_stage"
     assert names[1:] == ["secrets_scanner", "injection_scanner", "pii_detector",
-                         "intent_compliance_scanner"]
+                         "intent_compliance_scanner", "injection_ml_scanner",
+                         "intent_ml_scanner", "destructive_ops_scanner",
+                         "behaviour_stage"]
 
 
 def test_authz_stage_denies_unknown_role() -> None:

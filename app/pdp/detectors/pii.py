@@ -44,6 +44,37 @@ _LICENCE = re.compile(
     re.IGNORECASE,
 )
 
+# Indian PAN (Permanent Account Number): 5 letters, 4 digits, 1 letter — a
+# highly specific structure, low false-positive risk. R-01's frameworks already
+# cite the DPDP Act 2023 / IT Act 2000, so PAN is in scope as customer PII.
+# (Extension requested via Samarth; flag to Sneha — PII detector owner.)
+_PAN_IN = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", re.IGNORECASE)
+
+# International financial / identity PII added after tools/pii_gapfind.py showed
+# regex coverage was AU + PAN only. Conservative patterns (keyword-anchored where
+# a bare number would false-positive) so the ALLOW path stays clean.
+_AADHAAR = re.compile(
+    r"\b\d{4}\s\d{4}\s\d{4}\b"                       # 4-4-4 spaced form
+    r"|\baadhaar\s*(?:number|no|#|:)?\s*\d{12}\b",   # or keyword + 12 digits
+    re.IGNORECASE,
+)
+_IBAN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
+# BIC/SWIFT: keyword-anchored, and the code stays UPPERCASE (real BICs are) so an
+# 8-letter lowercase word after "SWIFT" (e.g. "SWIFT protocol") is not matched.
+# (?i:...) scopes case-insensitivity to the keyword only.
+_SWIFT = re.compile(
+    r"\b(?i:swift|bic)\s*(?:code|:)?\s*[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b",
+)
+_US_SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+# Card: the distinctive 4-4-4-4 grouped form, or a card keyword + 13-19 digits.
+# Anchored so a bare long number (Medicare, phone) doesn't match.
+_CARD = re.compile(
+    r"\b\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{4}\b"
+    r"|\b(?:card|visa|mastercard|amex)\D{0,10}(?:\d[ -]?){13,19}\b",
+    re.IGNORECASE,
+)
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+
 _DOB_NEAR_NAME = re.compile(
     r"[A-Z][a-z]+\s+[A-Z][a-z]+.{0,80}"
     r"(?:DOB|date\s*of\s*birth|\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})",
@@ -62,6 +93,13 @@ _ALL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (_PASSPORT, "Passport number"),
     (_MEDICARE, "Medicare number"),
     (_LICENCE, "Driver's licence"),
+    (_PAN_IN, "PAN (Indian tax ID)"),
+    (_AADHAAR, "Aadhaar number"),
+    (_IBAN, "IBAN"),
+    (_SWIFT, "SWIFT/BIC code"),
+    (_US_SSN, "US SSN"),
+    (_CARD, "Payment card number"),
+    (_EMAIL, "Email address"),
     (_DOB_NEAR_NAME, "Name + DOB co-occurrence"),
     (_ADDRESS_AU, "Residential address"),
 ]

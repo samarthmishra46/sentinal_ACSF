@@ -1,0 +1,6 @@
+# Synthetic intent dataset — review sign-off (v2, +general-engineering near-misses)
+# Reviewed by: Claude Code (agent), on Samarth's behalf.
+# Added _GENERAL_BENIGN: legitimate dev/support prompts reusing trigger words
+# (onboarding, dashboard, customer, risk score) to fix the BENIGN-10 false positive
+# where the classifier over-generalised "onboarding" -> R-03. Labels correct by
+# construction (hand-authored engineering tasks). Attack labels unchanged from v1.

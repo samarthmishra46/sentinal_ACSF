@@ -10,12 +10,18 @@ from app.pdp.detectors.secrets import SecretsDetector
 from app.pdp.detectors.injection import InjectionDetector
 from app.pdp.detectors.pii import PIIDetector
 from app.pdp.detectors.intent import IntentScanner
+from app.pdp.detectors.injection_ml import MLInjectionDetector
+from app.pdp.detectors.intent_ml import IntentMLDetector
+from app.pdp.detectors.destructive_ops import DestructiveOpsDetector
 
 ALL_DETECTORS = [
-    SecretsDetector(),     # Stage 4
-    InjectionDetector(),   # Stage 5
-    PIIDetector(),         # Stage 6
-    IntentScanner(),       # Stage 7
+    SecretsDetector(),          # Stage 4
+    InjectionDetector(),        # Stage 5
+    PIIDetector(),              # Stage 6
+    IntentScanner(),            # Stage 7
+    MLInjectionDetector(),      # Stage 8 (opt-in; kNN+DeBERTa cascade, injection)
+    IntentMLDetector(),         # Stage 8 (opt-in; compliance-intent classifier)
+    DestructiveOpsDetector(),   # Stage 9 (destructive data ops -> ESCALATE)
 ]
 
 __all__ = [
@@ -24,5 +30,8 @@ __all__ = [
     "InjectionDetector",
     "PIIDetector",
     "IntentScanner",
+    "MLInjectionDetector",
+    "IntentMLDetector",
+    "DestructiveOpsDetector",
     "ALL_DETECTORS",
 ]

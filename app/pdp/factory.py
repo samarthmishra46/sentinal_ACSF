@@ -58,12 +58,67 @@ def _authz_stage(ctx: "RequestContext", prompt: str, snap: Snapshot) -> Optional
     return Decision(disposition, reason, (signal,))
 
 
+# Process-wide behaviour tracker — stateful, so it lives outside the stateless
+# detector chain and is shared across requests (that is the whole point: it sees
+# the pattern across a user's requests, which no single detector can).
+_behaviour_tracker = None
+
+
+def _get_behaviour_tracker():
+    global _behaviour_tracker
+    if _behaviour_tracker is None:
+        from app.config import settings
+        from app.pdp.behaviour import BehaviourTracker
+        _behaviour_tracker = BehaviourTracker(
+            max_queries_per_hour=settings.BEHAVIOUR_MAX_QUERIES_PER_HOUR,
+            max_distinct_customers=settings.BEHAVIOUR_MAX_DISTINCT_CUSTOMERS,
+            max_off_owned_per_hour=settings.BEHAVIOUR_MAX_OFF_OWNED_PER_HOUR,
+            max_escalate_streak=settings.BEHAVIOUR_MAX_ESCALATE_STREAK,
+        )
+    return _behaviour_tracker
+
+
+def behaviour_stage(ctx: "RequestContext", prompt: str, snap: Snapshot) -> Optional[Decision]:
+    """Stage 10 — session-level anomaly. A bare stage (not a BaseDetector) because
+    it is *stateful*: it records this request into a rolling per-user window and
+    ESCALATEs when the pattern is abnormal. Never raises; disabled by default.
+    """
+    from app.config import settings
+    if not settings.BEHAVIOUR_ENABLED:
+        return None
+    try:
+        tracker = _get_behaviour_tracker()
+        owned = list(getattr(ctx, "owned_services", []) or [])
+        service = owned[0] if owned else None  # PEP passes the real target; default to own
+        verdict = tracker.record_and_check(
+            user_id=getattr(ctx, "user_id", "unknown"),
+            prompt=prompt,
+            owned_services=owned,
+            service=service,
+            now=getattr(ctx, "timestamp", None),
+        )
+        if not verdict.anomalous:
+            return None
+        signal = Signal(
+            detector="behaviour_stage",
+            rule_id="R-22",
+            disposition=Disposition.ESCALATE,
+            reason=f"Anomalous access pattern detected: {verdict.reason}.",
+            metadata={"feature": verdict.feature, "value": verdict.value,
+                      "threshold": verdict.threshold, "source": "behaviour"},
+        )
+        return Decision(Disposition.ESCALATE, signal.reason, (signal,))
+    except Exception:  # a stateful stage must never take the pipeline down
+        return None
+
+
 def default_stages() -> list[Stage]:
-    """The ordered pipeline stages: authorization first, then detectors 4→7.
+    """The ordered pipeline stages: authorization, detectors 4→9, behaviour 10.
 
     Cheapest-first / fail-fast. Stage 3 is authorization (Anamika's engine);
-    stages 4–7 are Sneha's + Nikhil's detectors, wrapped by ``detector_stage``.
-    Imports are lazy so importing this module never drags the detector chain.
+    stages 4–9 are the detectors, wrapped by ``detector_stage``; stage 10 is the
+    stateful behaviour stage (bare, outside ALL_DETECTORS). Imports are lazy so
+    importing this module never drags the detector chain.
     """
     from app.pdp.detectors import ALL_DETECTORS  # lazy
 
@@ -72,6 +127,7 @@ def default_stages() -> list[Stage]:
         stage = detector_stage(det.scan)
         stage.__name__ = det.stage_name  # name by detector for audit/fail-closed messages
         stages.append(stage)
+    stages.append(behaviour_stage)
     return stages
 
 

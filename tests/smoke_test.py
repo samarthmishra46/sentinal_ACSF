@@ -17,7 +17,9 @@ def test_health():
     """GET /health returns 200, ok status, and the audit backend health."""
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "audit": "ok"}
+    # 'detection' reports the detector chain: rules-only by default (the ML
+    # stage-8 backstop is opt-in via ML_DETECTOR_ENABLED).
+    assert resp.json() == {"status": "ok", "audit": "ok", "detection": "rules-only"}
 
 
 def test_chat_allow():

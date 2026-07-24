@@ -55,8 +55,14 @@ def index() -> FileResponse:
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness check for the Day-1 gate and ops (+ audit backend health)."""
-    return {"status": "ok", "audit": "ok" if audit_hook.is_healthy() else "degraded"}
+    """Liveness check for the Day-1 gate and ops (+ audit & detection health)."""
+    from app.pdp.detectors.injection_ml import ml_detection_mode
+
+    return {
+        "status": "ok",
+        "audit": "ok" if audit_hook.is_healthy() else "degraded",
+        "detection": ml_detection_mode(),  # rules-only | rules+ml | rules-only (ml unavailable)
+    }
 
 
 @app.post("/v1/chat", response_model=ChatResponse)

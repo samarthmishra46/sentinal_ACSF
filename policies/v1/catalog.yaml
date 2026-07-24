@@ -198,6 +198,43 @@ policies:
       - "ISM — ISM-1526, ISM-0133"
     version: v1
 
+  - id: "R-21"
+    policy_id: "P-21"
+    title: "Destructive Data Operation"
+    threat_id: "T-21"
+    disposition: ESCALATE
+    detector: destructive_ops_scanner
+    stage: 9
+    reason_template: "Destructive data operation detected: '{verb}' targeting '{object}'. Deletion of customer data must be authorised — request held for human reviewer."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "DPDP Act 2023 — Section 8(5)"
+      - "AU Privacy Act 1988 — APP 11"
+      - "AML/CTF Act 2006 — Part 10 (record retention)"
+      - "NIST CSF 2.0 — PR.DS, PR.AA"
+      - "IT Act 2000 — Section 43(d) (Damaging data)"
+    version: v1
+
+  - id: "R-22"
+    policy_id: "P-22"
+    title: "Anomalous Access Pattern"
+    threat_id: "T-22"
+    disposition: ESCALATE
+    detector: behaviour_stage
+    stage: 10
+    reason_template: "Anomalous access pattern detected: {reason}. Per-prompt checks passed, but the session-level pattern is abnormal — held for human review."
+    owasp_id: "LLM06"
+    atlas_id: "AML.T0040"
+    severity: HIGH
+    frameworks:
+      - "AML/CTF Act 2006 — Part 15 (ongoing customer due diligence)"
+      - "AU Privacy Act 1988 — APP 11"
+      - "NIST CSF 2.0 — DE.AE (anomalies & events), DE.CM"
+      - "DPDP Act 2023 — Section 8 (reasonable security safeguards)"
+    version: v1
+
   # ═══════ V2 RULES (deferred — tell Sumit) ═══════
 
   - id: "R-10"
@@ -397,3 +434,6 @@ policies:
       - "AU AI Ethics — Principle 3, Principle 7"
     version: v2
     defer_reason: "Partially covered by R-06; systematic probing detection in V2"
+
+
+    

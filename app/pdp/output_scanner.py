@@ -256,6 +256,37 @@ def o4_alignment(raw: str, normalized: str) -> list[OutputFinding]:
 
 
 # --------------------------------------------------------------------------- #
+# O5 — Exchange check (answer scored in the context of the prompt)
+# --------------------------------------------------------------------------- #
+
+# Anthropic replaced separate input/output classifiers with one "exchange"
+# classifier that scores the output *in the context of its input*, because some
+# harm is only visible in the pairing. O5 is the cheap version: over-disclosure.
+# If the answer references many customer identifiers the PROMPT never mentioned,
+# the model volunteered data outside the request's scope — the signature of a
+# wrong-scope retrieval or a bulk leak ("asked about 1 customer, answered with 50").
+_EXCHANGE_MAX_UNREQUESTED_IDS = 5
+
+
+def o5_exchange(prompt: str, raw: str) -> list[OutputFinding]:
+    """O5: flag an answer that discloses customer identifiers outside the prompt's scope."""
+    if not prompt:
+        return []
+    from app.pdp.behaviour.tracker import BehaviourTracker  # reuse the id extractor
+    in_prompt = BehaviourTracker.extract_customer_ids(prompt)
+    in_answer = BehaviourTracker.extract_customer_ids(raw)
+    unrequested = in_answer - in_prompt
+    if len(unrequested) > _EXCHANGE_MAX_UNREQUESTED_IDS:
+        return [OutputFinding(
+            scanner="o5_exchange", rule_id="R-05", disposition=OutputDisposition.BLOCK,
+            reason=(f"response discloses {len(unrequested)} customer identifiers the "
+                    f"prompt never referenced (over-disclosure / wrong-scope)"),
+            spans=tuple(sorted(unrequested))[:10],
+        )]
+    return []
+
+
+# --------------------------------------------------------------------------- #
 # Scanner
 # --------------------------------------------------------------------------- #
 
@@ -269,9 +300,9 @@ class OutputScanner:
     def scan(self, answer: str, prompt: str = "", ctx=None) -> OutputVerdict:
         """Scan ``answer`` and return the strictest egress verdict.
 
-        ``prompt``/``ctx`` are accepted for future context-aware checks (e.g.
-        "did the answer disclose data the prompt never asked for") and to keep
-        the signature stable; the V1 scanners are response-only.
+        O1–O4 are response-only. O5 is the context-aware "exchange" check: it
+        scores the answer against ``prompt`` to catch over-disclosure (data the
+        prompt never asked for). ``ctx`` stays reserved for richer future checks.
         """
         try:
             normalized = o1_normalize(answer)              # O1
@@ -279,6 +310,7 @@ class OutputScanner:
             findings += o2_pii_leak(answer, normalized)     # O2
             findings += o3_code_scan(answer, normalized)    # O3
             findings += o4_alignment(answer, normalized)    # O4
+            findings += o5_exchange(prompt, answer)         # O5 (answer|prompt)
         except Exception as exc:  # pragma: no cover - defensive
             # Fail-safe: a scanner that crashes must never let an unscreened
             # answer through. Block and surface it as an infra finding.
