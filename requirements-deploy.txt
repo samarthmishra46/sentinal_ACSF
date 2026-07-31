@@ -1,0 +1,11 @@
+# Runtime dependencies for the Hugging Face Space (full V2, CPU-only).
+# torch is installed separately in the Dockerfile from the CPU wheel index
+# (~200MB vs ~1.2GB for the default CUDA build). sklearn is NOT here — it is
+# training-only; the intent classifier runs as pure numpy over JSON coefficients.
+fastapi>=0.114.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0
+pyyaml>=6.0
+httpx>=0.27
+numpy>=1.26
+sentence-transformers>=2.7.0

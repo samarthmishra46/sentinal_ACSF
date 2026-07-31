@@ -1,8 +1,24 @@
+---
+title: Sentinel ACSF
+emoji: 🛡️
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Sentinel ACSF
 
 A FastAPI-based policy enforcement point (PEP) that screens every prompt through a
 staged policy-decision pipeline (authorization + secret/injection/PII/intent
 detectors), with an append-only audit log and monitoring stubs.
+
+> **Hugging Face Space:** this repo deploys as a Docker Space. The web UI is at `/`,
+> the API at `POST /v1/chat`, health at `/health`. Full V2 semantic + behavioural
+> tiers are enabled. First boot takes ~30–60s while the app loads the embedding
+> model; free Spaces sleep after idle and cold-start on the next request. Demo
+> personas only — the identity layer is a stub, so don't submit real customer data.
 
 ## Install
 
