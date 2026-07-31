@@ -22,7 +22,7 @@ tiers() {
   export KNN_ENABLED=true          # similarity vs known-attack bank
   export INTENT_ML_ENABLED=true    # compliance-intent classifier
   export BEHAVIOUR_ENABLED=true    # session-level anomaly (stage 10)
-  # export ML_DETECTOR_ENABLED=true  # optional heavy DeBERTa tier (~400ms)
+  export ML_DETECTOR_ENABLED=true  # heavy DeBERTa tier (~400ms, ambiguous band only)
 }
 
 case "${1:-help}" in

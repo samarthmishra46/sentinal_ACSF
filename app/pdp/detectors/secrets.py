@@ -75,6 +75,11 @@ _STRUCTURED: list[tuple[re.Pattern[str], str, float]] = [
 
     # Common cloud/service API keys
     (re.compile(r"\bsk_(?:live|test)_[0-9A-Za-z]{16,}\b"), "Stripe secret key", 0.96),
+    # LLM-provider secret keys: OpenAI (sk-, sk-proj-), Anthropic (sk-ant-),
+    # OpenRouter (sk-or-). Hyphenated `sk-` prefix + a 16+ char body. Distinct
+    # from Stripe's underscored `sk_live_/sk_test_` above.
+    (re.compile(r"\bsk-(?:proj-|ant-|or-)?[A-Za-z0-9_\-]{16,}\b"),
+     "LLM provider API key", 0.95),
     (re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"), "Google API key", 0.95),
     (re.compile(r"\bghp_[0-9A-Za-z]{36}\b|\bgithub_pat_[0-9A-Za-z_]{22,}\b"),
      "GitHub token", 0.96),

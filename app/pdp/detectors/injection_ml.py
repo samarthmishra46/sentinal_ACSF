@@ -205,16 +205,23 @@ class MLInjectionDetector(BaseDetector):
             return None
 
     def _detect(self, prompt: str, snap: Snapshot | None = None) -> Signal | None:
-        """Three-tier cascade, cheapest first.
+        """Two-tier cascade: cheap similarity first, classifier as the backstop.
 
         1. kNN similarity to a known attack (~10ms):
              sim >= KNN_STOP_THRESHOLD → STOP now; the classifier never runs.
-             sim <  KNN_BAND_LOW       → not close to anything → no objection.
-             in between                → ambiguous; fall through to the classifier.
-        2. DeBERTa classifier (~400ms) only on the ambiguous band.
+             sim <  KNN_BAND_LOW       → this tier has no objection.
+             in between                → ambiguous.
+        2. DeBERTa classifier (~340ms) on everything tier 1 did not STOP —
+           both the ambiguous band *and* the prompts similarity would have let
+           through. Similarity only recognises paraphrases of attacks already in
+           the bank, so "far from every known attack" is not evidence of being
+           benign; the classifier is the second opinion on those allows, and it
+           is the tier that catches novel wording.
 
-        Keeping the band narrow is what keeps p95 inside budget: most prompts
-        resolve at tier 1 for microseconds and never pay the classifier cost.
+        Cost: only a tier-1 STOP skips the classifier, so with both tiers on
+        nearly every surviving prompt pays the ~340ms. That is the deliberate
+        trade — recall over the 200ms budget. Set ML_DETECTOR_ENABLED=false to
+        get the fast, similarity-only path back.
         """
         knn_hit = self._knn_detect(prompt, snap)
         if knn_hit is not None:

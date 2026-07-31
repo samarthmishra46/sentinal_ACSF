@@ -46,6 +46,17 @@ _DATA_OBJECT = re.compile(
     re.IGNORECASE,
 )
 
+# Filesystem targets. Destructive verbs against these are also held for review —
+# "truncate the files in the folder", "wipe the disk". Scoped to *bulk/whole*
+# targets (plural files, a folder/directory/disk/filesystem) so a single "delete
+# the temp file" stays quiet; deleting many files or a whole tree does not.
+_FILESYSTEM_OBJECT = re.compile(
+    r"\b(files|folders?|director(?:y|ies)|disks?|filesystems?|"
+    r"file\s+system|volumes?|partitions?|"
+    r"(?:everything|all|every\s+file)\s+in\s+(?:the\s+)?(?:folder|directory|dir))\b",
+    re.IGNORECASE,
+)
+
 
 class DestructiveOpsDetector(BaseDetector):
     """Stage 9: destructive data operations on customer/person data -> ESCALATE."""
@@ -68,17 +79,27 @@ class DestructiveOpsDetector(BaseDetector):
     def _detect(self, prompt: str) -> Signal | None:
         verb = _DESTRUCTIVE_VERB.search(prompt)
         obj = _DATA_OBJECT.search(prompt)
+        target = "data"
+        if not (verb and obj):
+            # No data/person object — try filesystem targets (bulk file/dir/disk
+            # destruction). Same verb set, ESCALATE for the same reason: a human
+            # confirms a mass-delete was intended and authorised.
+            obj = _FILESYSTEM_OBJECT.search(prompt)
+            target = "filesystem"
         if not (verb and obj):
             return None
 
+        detail = (
+            "deletion of customer data must be authorised." if target == "data"
+            else "bulk file/directory destruction must be authorised."
+        )
         return Signal(
             detector=self.stage_name,
             rule_id="R-21",
             disposition=Disposition.ESCALATE,
             reason=(
-                f"Destructive data operation detected: '{verb.group(0).lower()}' "
-                f"targeting '{obj.group(0).lower()}'. Held for human review — "
-                f"deletion of customer data must be authorised."
+                f"Destructive {target} operation detected: '{verb.group(0).lower()}' "
+                f"targeting '{obj.group(0).lower()}'. Held for human review — {detail}"
             ),
             confidence=0.8,
             metadata={
@@ -87,5 +108,6 @@ class DestructiveOpsDetector(BaseDetector):
                 "severity": "HIGH",
                 "verb": verb.group(0).lower(),
                 "object": obj.group(0).lower(),
+                "target_class": target,
             },
         )

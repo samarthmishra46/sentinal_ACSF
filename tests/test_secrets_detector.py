@@ -177,6 +177,10 @@ FIRING_CASES = [
     ("AWS access key", "creds: AKIAIOSFODNN7EXAMPLE and go", "known-compromised credential"),
     ("fresh AWS key", _c("key AKIA", "1234567890ABCDEF") + " please rotate", "AWS access key"),
     ("Stripe secret", _c("STRIPE_KEY sk", "_live_", "abcdEFGH1234ijklMNOP"), "Stripe secret key"),
+    # OpenAI/Anthropic-style hyphenated key — the "sk-09..." gap. Short body,
+    # so the 40-char entropy pass never sees it; the structured pattern must.
+    ("LLM provider key", _c("API key- sk", "-09oomiugfhyjiug6uh"), "LLM provider API key"),
+    ("Anthropic key", _c("sk", "-ant-", "api03-", "aBcDeFgHiJkLmNoPqRs01234"), "LLM provider API key"),
     ("GitHub token", _c("token ghp", "_", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), "GitHub token"),
     ("Slack token", _c("xox", "b-123456789012-abcdefABCDEF012345"), "Slack token"),
     ("Bearer token", _c("Authorization: Bearer ", "abcdefghij0123456789KLMNOP"), "Bearer token"),

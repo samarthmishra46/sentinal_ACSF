@@ -157,18 +157,24 @@ consumers read the same vector — which is why the second one is nearly free.
     ▼           ▼          ▼          ▼           ▼          ▼
   ≥0.80    0.72-0.80     <0.72     ≥0.70     0.45-0.70    benign
     │           │          │          │           │        <0.45
-    ▼           ▼          ▼          ▼           ▼          ▼
-  STOP       BAND        pass    rule's own   ESCALATE     pass
-  cites     ~7% of              level:        (softened)
-  attack    traffic             R-02/03/09
-   ID          │                  → STOP
-               ▼                 R-05
-      ┌─────────────────┐         → ESCALATE
-      │ DeBERTa tier    │
-      │ OFF by default  │
-      │ ~400ms          │
-      └─────────────────┘
+    ▼           └─────┬────┘          ▼           ▼          ▼
+  STOP                │          rule's own   ESCALATE     pass
+  cites               │          level:        (softened)
+  attack              │          R-02/03/09
+   ID                 ▼           → STOP
+      ┌──────────────────────┐    R-05
+      │ DeBERTa RECHECK      │     → ESCALATE
+      │ ON by default ~340ms │
+      │ ≥0.90 STOP           │
+      │ ≥0.50 ESCALATE       │
+      └──────────────────────┘
 ```
+
+**Why the recheck.** Similarity only recognises paraphrases of attacks *already in the
+bank*, so "far from every known attack" is not evidence of being benign — it is the gap
+novel wording walks through. Everything the kNN tier does not STOP outright, band or
+apparent-pass alike, gets a second opinion from DeBERTa. Only a tier-1 STOP skips it, so
+in practice nearly every surviving prompt pays the ~340ms: recall bought with latency.
 
 **Ceiling rule.** Similarity says *which* attack; the catalog says *how strict* it is. A
 perfect 1.00 match to an ESCALATE-class rule (R-05 bulk, R-08 cross-org) still only
@@ -224,5 +230,6 @@ the 40ms semantic layer.
 ./run_v2.sh test    # full suite (tiers off, like CI)
 ```
 
-Flags: `KNN_ENABLED` · `INTENT_ML_ENABLED` · `BEHAVIOUR_ENABLED` · `ML_DETECTOR_ENABLED`
-— all default **false**. Measured results in [v2_eval_results.md](v2_eval_results.md).
+Flags: `KNN_ENABLED` · `INTENT_ML_ENABLED` · `BEHAVIOUR_ENABLED` default **false**;
+`ML_DETECTOR_ENABLED` defaults **true** (the DeBERTa recheck; set it false for the fast
+deterministic path — the deploy image does). Measured results in [v2_eval_results.md](v2_eval_results.md).

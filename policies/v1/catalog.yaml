@@ -200,12 +200,12 @@ policies:
 
   - id: "R-21"
     policy_id: "P-21"
-    title: "Destructive Data Operation"
+    title: "Destructive Data or Filesystem Operation"
     threat_id: "T-21"
     disposition: ESCALATE
     detector: destructive_ops_scanner
     stage: 9
-    reason_template: "Destructive data operation detected: '{verb}' targeting '{object}'. Deletion of customer data must be authorised — request held for human reviewer."
+    reason_template: "Destructive {target_class} operation detected: '{verb}' targeting '{object}'. Deletion of customer data or bulk file/directory destruction must be authorised — request held for human reviewer."
     owasp_id: "LLM06"
     atlas_id: "AML.T0040"
     severity: HIGH
@@ -303,12 +303,12 @@ policies:
 
   - id: "R-14"
     policy_id: "P-14"
-    title: "Malware Creation Assistance"
+    title: "Offensive-Artifact / Malware Creation Assistance"
     threat_id: "T-14"
     disposition: STOP
     detector: intent_compliance_scanner
     stage: 7
-    reason_template: "Malware creation request detected: request asks for functional {malware_type}. The AI assistant must not produce malicious code."
+    reason_template: "Offensive-artifact generation detected: request asks the assistant to produce exploit code, an attack payload, or malware. The AI assistant must not produce offensive artifacts."
     owasp_id: "LLM06"
     atlas_id: "AML.T0040"
     severity: CRITICAL
@@ -317,8 +317,8 @@ policies:
       - "NIST CSF 2.0 — PR.DS, DE.CM"
       - "ISM — ISM-0917, ISM-1526"
       - "CISA — Secure by Design"
-    version: v2
-    defer_reason: "Partially covered by R-04; full malware-specific patterns in V2"
+    version: v1
+    notes: "Activated in V1: _check_payload_generation in intent.py catches generate/create/write + offensive object (payload, exploit, malware), independent of a named target — the gap R-04's two-part 'technique + named asset' match leaves open."
 
   - id: "R-15"
     policy_id: "P-15"

@@ -8,6 +8,7 @@ Run with: pytest tests/
 """
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 
 client = TestClient(app)
@@ -17,9 +18,16 @@ def test_health():
     """GET /health returns 200, ok status, and the audit backend health."""
     resp = client.get("/health")
     assert resp.status_code == 200
-    # 'detection' reports the detector chain: rules-only by default (the ML
-    # stage-8 backstop is opt-in via ML_DETECTOR_ENABLED).
-    assert resp.json() == {"status": "ok", "audit": "ok", "detection": "rules-only"}
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["audit"] == "ok"
+    # 'detection' reports which tiers are live, so it moves with the flags
+    # rather than being a fixed string. The DeBERTa recheck is on by default
+    # (ML_DETECTOR_ENABLED), giving 'rules+ml'; with the model missing it
+    # degrades to 'rules-only (ml unavailable)' instead of failing.
+    assert body["detection"].startswith("rules")
+    if settings.ML_DETECTOR_ENABLED and "unavailable" not in body["detection"]:
+        assert "ml" in body["detection"]
 
 
 def test_chat_allow():

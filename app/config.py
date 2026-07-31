@@ -65,12 +65,15 @@ class Settings:
         ).resolve()
         self.KNOWN_ORGS: list[str] = _env_list("KNOWN_ORGS", DEFAULT_KNOWN_ORGS)
 
-        # --- ML injection detector (Stage 8; opt-in) --------------------------
-        # Off by default so the base install stays light and the red-team gate
-        # stays deterministic. Enable with the `ml` extra installed. Thresholds
-        # are tuned from the adversarial eval (tests/eval/adversarial.py): STOP
-        # at high confidence, ESCALATE in the ambiguous middle.
-        self.ML_DETECTOR_ENABLED: bool = _env_bool("ML_DETECTOR_ENABLED", False)
+        # --- ML injection detector (Stage 8) ---------------------------------
+        # On by default. Needs the `ml` extra installed; without it the detector
+        # self-guards (logs a warning, degrades to rules-only) rather than
+        # failing, so a base install still runs. Set ML_DETECTOR_ENABLED=false
+        # to keep the pipeline purely deterministic (the deploy image does).
+        # Thresholds are tuned from the adversarial eval
+        # (tests/eval/adversarial.py): STOP at high confidence, ESCALATE in the
+        # ambiguous middle.
+        self.ML_DETECTOR_ENABLED: bool = _env_bool("ML_DETECTOR_ENABLED", True)
         self.ML_MODEL_NAME: str = os.getenv(
             "ML_MODEL_NAME", "protectai/deberta-v3-base-prompt-injection-v2"
         )

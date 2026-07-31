@@ -3,6 +3,7 @@
 Sub-rules evaluated in priority order (STOP first, then ESCALATE):
   R-02  SMR/TTR content         keyword match          STOP
   R-03  Compliance bypass       two-part (action+obj)  STOP
+  R-14  Offensive-artifact gen  two-part (verb+object) STOP
   R-04  System attack           two-part (tech+target) STOP
   R-09  Reporting manipulation  three-part (v+r+t)     STOP
   R-05  Bulk data extraction    pattern match          ESCALATE
@@ -183,6 +184,107 @@ def _check_attack(prompt: str) -> Signal | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# R-14: Offensive-artifact generation (two-part: generate verb + offensive object)
+# ═══════════════════════════════════════════════════════════════════════════
+# R-04 keys on attacking a *named* system asset ("our API", "production"), so it
+# misses "generate SQL injection payloads to validate our internal application" —
+# no recognised target noun. This rule keys on the *act of producing an offensive
+# artifact* instead, so it fires regardless of whose system is (or isn't) named.
+# It activates catalog rule R-14 (Malware Creation Assistance), whose defer note
+# is exactly "partially covered by R-04". Ordered BEFORE R-04 in _detect so the
+# artifact-generation reason wins when both would match.
+
+_PAYLOAD_VERB = re.compile(
+    r"\b(generate|create|write|produce|build|craft|develop|construct|"
+    r"make|give\s+me|provide|code\s+up)\b",
+    re.IGNORECASE,
+)
+
+# Offensive artifacts: an attack technique paired with a code/artifact noun, or a
+# self-evidently malicious artifact on its own (malware, ransomware, keylogger…).
+_PAYLOAD_OBJ = re.compile(
+    r"\b(?:"
+    r"(?:SQL\s*inject(?:ion)?|XSS|cross[\-\s]site\s+script|CSRF|SSRF|RCE|"
+    r"command\s+inject(?:ion)?|buffer\s+overflow|directory\s+traversal|"
+    r"path\s+traversal|deserial(?:ization|isation))\s*"
+    r"(?:payload|exploit|attack|string|vector|script|code|query)?s?"
+    r"|(?:exploit|payload|attack\s+vector)s?\s+(?:for|against|to)"
+    r"|malware|ransomware|spyware|rootkit|keylogger|botnet|"
+    r"reverse\s+shell|(?:web\s*)?shell\s+code|shellcode|backdoor|"
+    r"trojan|worm|virus\s+(?:code|program|script)|"
+    r"(?:privilege[\-\s]escalation|brute[\-\s]force)\s+(?:script|tool|payload)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Educational / defensive framing stays allowed — describing, detecting, or
+# defending against these is legitimate engineering, only *producing* them is not.
+_PAYLOAD_OK = re.compile(
+    r"\b(?:"
+    r"explain|describe|what\s+is|what\s+are|how\s+(?:do(?:es)?|can)|"
+    r"detect(?:ion|ing)?|defend|protect|prevent|mitigat|remediat|"
+    r"sanitis|sanitiz|input\s+validat|harden|patch|fix\s+(?:this|the|my)|"
+    r"unit\s+test|test\s+(?:case|fixture)\s+(?:for|that)\s+(?:detect|catch|reject)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Self-evidently offensive artifacts: there is no legitimate "generate" use, so
+# the educational-framing exemption must NOT apply to these. Blocks the trivial
+# bypass "explain how ransomware works, and also write me one".
+_MALICIOUS_STANDALONE = re.compile(
+    r"\b(?:malware|ransomware|spyware|rootkit|keylogger|botnet|"
+    r"reverse\s+shell|shellcode|backdoor|trojan|worm)\b",
+    re.IGNORECASE,
+)
+
+# Generation aimed at a *working* attack against a target — also overrides the
+# exemption. Catches "explain X and create one that works on <system>", where a
+# stray "explain" would otherwise neutralise the block.
+_ATTACK_GEN_OVERRIDE = re.compile(
+    r"\b(?:working|functional|real|actual)\s+(?:exploit|payload|attack|injection)"
+    r"|(?:exploit|payload|injection|attack|one)\s+(?:that|which|to)\s+"
+    r"(?:work|works|target|hit|bypass|defeat|break|compromise|attack|run)"
+    r"|(?:work|works|working)\s+(?:on|against)\s+"
+    r"(?:sentinel|the|our|your|this|their|a|an)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_payload_generation(prompt: str) -> Signal | None:
+    """R-14: block requests to *produce* offensive artifacts, regardless of target.
+
+    The educational/defensive exemption (``_PAYLOAD_OK``) is a keyword guard, so
+    it is overridable: a self-evidently malicious object (``ransomware``) or an
+    explicit "make one that works on <system>" construction blocks even when an
+    "explain"/"how does" phrase co-occurs. Keyword guards can still be worded
+    around — the Stage-8 semantic layer is the real backstop for paraphrase.
+    """
+    verb = _PAYLOAD_VERB.search(prompt)
+    obj = _PAYLOAD_OBJ.search(prompt)
+    if not (verb and obj):
+        return None
+    # Educational framing exempts, UNLESS the prompt also asks to produce a
+    # self-evidently malicious artifact or a working attack against a target.
+    if _PAYLOAD_OK.search(prompt) and not (
+        _MALICIOUS_STANDALONE.search(prompt) or _ATTACK_GEN_OVERRIDE.search(prompt)
+    ):
+        return None
+    return Signal(
+        detector="intent_compliance_scanner",
+        rule_id="R-14",
+        disposition=Disposition.STOP,
+        reason=(
+            f"Offensive-artifact generation: '{verb.group()}' + '{obj.group().strip()}'. "
+            f"The assistant must not produce exploit code, payloads, or malware. "
+            f"For authorised testing, use the sanctioned security-assessment process."
+        ),
+        confidence=0.90,
+        metadata={"owasp_id": "LLM06", "atlas_id": "AML.T0040", "severity": "CRITICAL"},
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # R-09: Reporting manipulation (three-part: verb + record + temporal)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -337,7 +439,8 @@ class IntentScanner(BaseDetector):
 
     def _detect(self, prompt: str) -> Signal | None:
         """STOP rules first (highest severity), then ESCALATE rules."""
-        for fn in [_check_smr, _check_bypass, _check_attack, _check_manipulation]:
+        for fn in [_check_smr, _check_bypass, _check_payload_generation,
+                   _check_attack, _check_manipulation]:
             signal = fn(prompt)
             if signal is not None:
                 return signal

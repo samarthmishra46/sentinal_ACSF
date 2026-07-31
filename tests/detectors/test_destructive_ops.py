@@ -43,13 +43,31 @@ def test_destructive_op_escalates(det, eng, snap, prompt) -> None:
 
 
 @pytest.mark.parametrize("prompt", [
-    "how do I delete a temporary file in Python?",
+    "an example script that would truncate the files in the folder",
+    "write a script to delete all files in the directory",
+    "wipe the disk",
+    "purge everything in the folder",
+    "destroy the entire filesystem",
+])
+def test_filesystem_destruction_escalates(det, eng, snap, prompt) -> None:
+    # Bulk file/dir/disk destruction is held for review under R-21, target_class
+    # 'filesystem'. Guards the "truncate files in folder" gap.
+    sig = det.scan(eng, prompt, snap)
+    assert sig is not None, f"expected a signal for: {prompt}"
+    assert sig.disposition is Disposition.ESCALATE
+    assert sig.rule_id == "R-21"
+    assert sig.metadata.get("target_class") == "filesystem"
+
+
+@pytest.mark.parametrize("prompt", [
+    "how do I delete a temporary file in Python?",   # singular file → quiet
     "remove this code comment before committing",
     "explain how the DELETE HTTP verb differs from PUT",
     "how do I write a retry loop with exponential backoff?",
+    "how do I safely remove old log files?",          # 'remove' is not a destructive verb
 ])
 def test_destructive_op_does_not_fire_on_benign(det, eng, snap, prompt) -> None:
-    # A destructive verb with no customer/data object must NOT fire.
+    # A destructive verb with no customer/data/filesystem object must NOT fire.
     assert det.scan(eng, prompt, snap) is None
 
 
