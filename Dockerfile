@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir --user \
 COPY --chown=user app/       app/
 COPY --chown=user policies/  policies/
 COPY --chown=user models/    models/
+COPY --chown=user tools/rebuild_bank_vectors.py tools/
 
 # Bake the embedding model into the image so boot has no network dependency.
 RUN python -c "from sentence_transformers import SentenceTransformer; \
@@ -42,6 +43,11 @@ RUN python -c "from transformers import pipeline; \
     pipeline('text-classification', \
              model='protectai/deberta-v3-base-prompt-injection-v2', \
              top_k=None)"
+
+# Rebuild the attack-bank vectors (models/attack_bank.npz) from the committed
+# .json. The binary .npz is NOT in git — HF tracks *.npz via LFS — so it is
+# regenerated here from text + the baked-in MiniLM. Deterministic: identical bytes.
+RUN PYTHONPATH=/home/user/app python tools/rebuild_bank_vectors.py
 
 # --- runtime config --------------------------------------------------------
 # Full V2 semantic + behavioural stack on, including the DeBERTa recheck (needs
