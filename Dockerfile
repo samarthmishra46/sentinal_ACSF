@@ -35,12 +35,21 @@ COPY --chown=user models/    models/
 RUN python -c "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
+# Bake the Stage-8 DeBERTa injection classifier too (ML_DETECTOR_ENABLED=true).
+# ~750MB; downloading it on first request would make cold starts unusable, so it
+# ships in the image. Must match settings.ML_MODEL_NAME.
+RUN python -c "from transformers import pipeline; \
+    pipeline('text-classification', \
+             model='protectai/deberta-v3-base-prompt-injection-v2', \
+             top_k=None)"
+
 # --- runtime config --------------------------------------------------------
-# Full V2 semantic + behavioural stack on. Audit DB to /tmp (ephemeral Space).
+# Full V2 semantic + behavioural stack on, including the DeBERTa recheck (needs
+# an upgraded/always-on Space — ~340ms/prompt on CPU). Audit DB to /tmp.
 ENV KNN_ENABLED=true \
     INTENT_ML_ENABLED=true \
     BEHAVIOUR_ENABLED=true \
-    ML_DETECTOR_ENABLED=false \
+    ML_DETECTOR_ENABLED=true \
     DB_URL=sqlite:////tmp/sentinel_audit.db \
     PORT=7860
 

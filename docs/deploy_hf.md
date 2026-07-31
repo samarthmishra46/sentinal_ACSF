@@ -19,7 +19,9 @@ fit comfortably — the thing that made Render's 512 MB free tier impossible.
 1. **Create the Space** at <https://huggingface.co/new-space>:
    - Space name: `sentinel` → URL becomes `https://<username>-sentinel.hf.space`
    - SDK: **Docker** → **Blank**
-   - Hardware: **CPU basic (free)**
+   - Hardware: **CPU upgrade** (recommended — DeBERTa on `CPU basic` free
+     tier cold-starts slowly and adds ~340ms/prompt; a Pro subscription can
+     run the upgraded/always-on tier)
 
 2. **Add the Space as a git remote** and push this branch to its `main`:
    ```bash
@@ -29,10 +31,10 @@ fit comfortably — the thing that made Render's 512 MB free tier impossible.
    When prompted, the **password is an HF write token**
    (<https://huggingface.co/settings/tokens>), not your account password.
 
-3. **Watch the build** on the Space page. First build is ~5–8 min (installs torch,
-   bakes MiniLM). When it goes green:
+3. **Watch the build** on the Space page. First build is ~8–12 min (installs torch,
+   bakes MiniLM **and the ~750MB DeBERTa classifier**). When it goes green:
    - `https://<username>-sentinel.hf.space/` — web UI
-   - `https://<username>-sentinel.hf.space/health` — should report `rules+knn+intent`
+   - `https://<username>-sentinel.hf.space/health` — should report `rules+knn+intent+ml`
    - `https://<username>-sentinel.hf.space/v1/chat` — the API
 
 ## Runtime config (set in the Dockerfile, override in Space "Settings → Variables")
@@ -42,7 +44,7 @@ fit comfortably — the thing that made Render's 512 MB free tier impossible.
 | `KNN_ENABLED` | `true` | similarity vs attack bank |
 | `INTENT_ML_ENABLED` | `true` | compliance-intent classifier |
 | `BEHAVIOUR_ENABLED` | `true` | session-level anomaly |
-| `ML_DETECTOR_ENABLED` | `false` | heavy DeBERTa tier — off; not needed |
+| `ML_DETECTOR_ENABLED` | `true` | DeBERTa recheck — baked into image; needs an upgraded/always-on Space (~340ms/prompt on CPU) |
 | `DB_URL` | `sqlite:////tmp/sentinel_audit.db` | ephemeral audit log |
 
 ## Honest limits
